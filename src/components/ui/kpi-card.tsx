@@ -12,7 +12,15 @@ export type KpiCardProps = {
   value: React.ReactNode;
   prefix?: string;
   suffix?: string;
-  delta?: { value: string; trend: Trend; vs?: string };
+  delta?: {
+    value: string | number;
+    trend?: Trend;
+    /** alias legado para `trend` */
+    direction?: Trend;
+    vs?: string;
+  };
+  /** alias legado para `delta.vs` (renderizado se `vs` não estiver presente) */
+  deltaLabel?: string;
   icon?: LucideIcon;
   tone?: "cyan" | "purple" | "success" | "warning" | "danger";
   sparkline?: React.ReactNode;
@@ -42,12 +50,21 @@ export function KpiCard({
   prefix,
   suffix,
   delta,
+  deltaLabel,
   icon: Icon,
   tone = "cyan",
   sparkline,
   className,
   index = 0,
 }: KpiCardProps) {
+  const trend: Trend = delta?.trend ?? delta?.direction ?? "neutral";
+  const vs = delta?.vs ?? deltaLabel;
+  const deltaText = (() => {
+    if (delta == null) return null;
+    if (typeof delta.value === "string") return delta.value;
+    const sign = trend === "up" ? "+" : trend === "down" ? "−" : "";
+    return `${sign}${String(delta.value).replace(".", ",")}%`;
+  })();
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -85,16 +102,16 @@ export function KpiCard({
           <span
             className={cn(
               "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-mono font-semibold",
-              delta.trend === "up" && "bg-success/15 text-success",
-              delta.trend === "down" && "bg-danger/15 text-danger",
-              delta.trend === "neutral" && "bg-muted text-muted-foreground"
+              trend === "up" && "bg-success/15 text-success",
+              trend === "down" && "bg-danger/15 text-danger",
+              trend === "neutral" && "bg-muted text-muted-foreground"
             )}
           >
-            {delta.trend === "up" && <ArrowUp className="w-2.5 h-2.5" />}
-            {delta.trend === "down" && <ArrowDown className="w-2.5 h-2.5" />}
-            {delta.value}
+            {trend === "up" && <ArrowUp className="w-2.5 h-2.5" />}
+            {trend === "down" && <ArrowDown className="w-2.5 h-2.5" />}
+            {deltaText}
           </span>
-          {delta.vs && <span className="text-muted-foreground/80">{delta.vs}</span>}
+          {vs && <span className="text-muted-foreground/80">{vs}</span>}
         </div>
       )}
 
