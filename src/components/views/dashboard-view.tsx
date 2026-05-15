@@ -37,14 +37,43 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  MOCK_HOURLY_OCCUPATION,
-  MOCK_MACHINES,
-  MOCK_REVENUE_SPLIT,
-  MOCK_REVENUE_TIMESERIES,
-} from "@/lib/mock-data";
+import type {
+  DashboardKpis,
+  HourlyOccupationPoint,
+  MachineRow,
+  RevenuePoint,
+  RevenueSplitSlice,
+} from "@/lib/queries";
 
-export function DashboardView() {
+const fmtBRL = (v: number) =>
+  v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPct = (atual: number, base: number) => {
+  if (base <= 0) return { text: "—", trend: "neutral" as const };
+  const pct = ((atual - base) / base) * 100;
+  const trend = pct > 0.5 ? ("up" as const) : pct < -0.5 ? ("down" as const) : ("neutral" as const);
+  return {
+    text: `${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(1).replace(".", ",")}%`,
+    trend,
+  };
+};
+const fmtDateBR = (d: Date) =>
+  `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+
+export type DashboardViewProps = {
+  kpis: DashboardKpis;
+  timeseries: RevenuePoint[];
+  split: RevenueSplitSlice[];
+  hourly: HourlyOccupationPoint[];
+  machines: MachineRow[];
+};
+
+export function DashboardView({ kpis, timeseries, split, hourly, machines }: DashboardViewProps) {
+  const today = new Date();
+  const hoje = fmtDateBR(today);
+  const deltaFat = fmtPct(kpis.faturamentoHoje, kpis.faturamentoOntem);
+  const deltaVendas = fmtPct(kpis.vendasHoje, kpis.vendasMedia7d);
+  const machineCount = machines.length;
+  const warningCount = machines.filter((m) => m.status === "warning").length;
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
       {/* HEADER */}
@@ -53,10 +82,9 @@ export function DashboardView() {
         title="Boa tarde, Daniel."
         subtitle={
           <>
-            Operação do dia <span className="font-semibold text-foreground">14/05/2026</span> ·{" "}
-            <span className="font-mono text-foreground">R$ 142,30</span> em{" "}
-            <span className="font-mono text-foreground">7 vendas</span> ·{" "}
-            <span className="text-success">95,2% saúde</span> · CLOCK AI monitorando 24/7.
+            Operação do dia <span className="font-semibold text-foreground">{hoje}</span> ·{" "}
+            <span className="font-mono text-foreground">R$ {fmtBRL(kpis.faturamentoHoje)}</span> em{" "}
+            <span className="font-mono text-foreground">{kpis.vendasHoje} vendas</span> · CLOCK AI monitorando 24/7.
           </>
         }
         actions={
@@ -68,7 +96,7 @@ export function DashboardView() {
               <Download className="w-3 h-3 mr-1" /> Exportar
             </Button>
             <Button size="sm" className="text-xs h-8 bg-brand-cyan hover:bg-brand-cyan/90 text-primary-foreground">
-              <Calendar className="w-3 h-3 mr-1" /> Hoje · 14/05
+              <Calendar className="w-3 h-3 mr-1" /> Hoje · {hoje.slice(0, 5)}
             </Button>
           </>
         }
@@ -80,13 +108,13 @@ export function DashboardView() {
           index={0}
           label="Faturamento hoje"
           prefix="R$"
-          value="142,30"
-          delta={{ value: "+12,4%", trend: "up", vs: "vs. ontem" }}
+          value={fmtBRL(kpis.faturamentoHoje)}
+          delta={{ value: deltaFat.text, trend: deltaFat.trend, vs: "vs. ontem" }}
           icon={DollarSign}
           tone="cyan"
           sparkline={
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={MOCK_REVENUE_TIMESERIES.slice(-7)}>
+              <AreaChart data={timeseries.slice(-7)}>
                 <defs>
                   <linearGradient id="kpi1" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--brand-cyan)" stopOpacity={0.6} />
@@ -101,19 +129,20 @@ export function DashboardView() {
 
         <KpiCard
           index={1}
-          label="Projetado vs realizado"
-          value="76%"
-          delta={{ value: "−24%", trend: "down", vs: "meta R$ 187,00" }}
+          label="Ticket médio · 7d"
+          prefix="R$"
+          value={fmtBRL(kpis.ticketMedio)}
+          delta={{ value: "média móvel", trend: "neutral", vs: "ciclos concluídos" }}
           icon={TrendingUp}
-          tone="warning"
+          tone="purple"
         />
 
         <KpiCard
           index={2}
           label="Vendas no dia"
-          value="7"
-          suffix="/ ~32 esperadas"
-          delta={{ value: "−5", trend: "down", vs: "vs. média 7d" }}
+          value={String(kpis.vendasHoje)}
+          suffix={`/ ~${kpis.vendasMedia7d} média`}
+          delta={{ value: deltaVendas.text, trend: deltaVendas.trend, vs: "vs. média 7d" }}
           icon={ShoppingCart}
           tone="purple"
         />
@@ -121,11 +150,15 @@ export function DashboardView() {
         <KpiCard
           index={3}
           label="Saúde operacional"
-          value="95,2"
-          suffix="%"
-          delta={{ value: "+0,8 p.p.", trend: "up", vs: "últimas 24h" }}
+          value={String(machineCount - warningCount)}
+          suffix={`/ ${machineCount} máquinas`}
+          delta={{
+            value: warningCount === 0 ? "todas ok" : `${warningCount} alerta${warningCount > 1 ? "s" : ""}`,
+            trend: warningCount === 0 ? "up" : "down",
+            vs: "tempo real",
+          }}
           icon={Activity}
-          tone="success"
+          tone={warningCount === 0 ? "success" : "warning"}
         />
       </div>
 
@@ -151,7 +184,7 @@ export function DashboardView() {
           }
         >
           <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={MOCK_REVENUE_TIMESERIES} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+            <AreaChart data={timeseries} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="revArea" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--brand-cyan)" stopOpacity={0.4} />
@@ -186,7 +219,7 @@ export function DashboardView() {
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
-                  data={MOCK_REVENUE_SPLIT}
+                  data={split}
                   innerRadius={55}
                   outerRadius={85}
                   paddingAngle={2}
@@ -194,7 +227,7 @@ export function DashboardView() {
                   stroke="var(--background)"
                   strokeWidth={2}
                 >
-                  {MOCK_REVENUE_SPLIT.map((s, i) => (
+                  {split.map((s, i) => (
                     <Cell key={i} fill={s.color} />
                   ))}
                 </Pie>
@@ -210,7 +243,7 @@ export function DashboardView() {
             </ResponsiveContainer>
           </div>
           <div className="mt-3 space-y-1.5">
-            {MOCK_REVENUE_SPLIT.map(s => (
+            {split.map(s => (
               <div key={s.name} className="flex items-center justify-between text-xs">
                 <span className="inline-flex items-center gap-2 text-muted-foreground">
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.color }} />
@@ -232,7 +265,7 @@ export function DashboardView() {
           subtitle="Pico previsto entre 18h–22h · sub-utilização entre 06h–10h"
         >
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={MOCK_HOURLY_OCCUPATION} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+            <BarChart data={hourly} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="hourBar" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--brand-purple)" stopOpacity={0.95} />
@@ -286,7 +319,9 @@ export function DashboardView() {
       {/* MACHINE STATUS */}
       <ChartCard
         title="Status das máquinas"
-        subtitle="Tempo real · 6 equipamentos · 1 com alerta técnico"
+        subtitle={`Tempo real · ${machineCount} equipamento${machineCount === 1 ? "" : "s"}${
+          warningCount > 0 ? ` · ${warningCount} com alerta técnico` : ""
+        }`}
         actions={
           <Button variant="ghost" size="sm" className="text-xs h-7 text-brand-cyan">
             Ver todas <ArrowRight className="w-3 h-3 ml-1" />
@@ -294,7 +329,7 @@ export function DashboardView() {
         }
       >
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {MOCK_MACHINES.map((m, i) => {
+          {machines.map((m) => {
             const variant =
               m.status === "warning" ? "warning" :
               m.status === "running" ? "success" :

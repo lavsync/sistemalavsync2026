@@ -38,22 +38,36 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { InsightCard } from "@/components/ui/insight-card";
 import { Button } from "@/components/ui/button";
-import {
-  MOCK_PERFORMANCE_30D,
-  MOCK_PERFORMANCE_BY_MACHINE,
-  MOCK_PERFORMANCE_HEATMAP,
-  MOCK_PERFORMANCE_MOM,
-  MOCK_PERFORMANCE_WEEKDAY,
-  MOCK_PERFORMANCE_YOY,
-} from "@/lib/mock-data";
+import { tooltipFormatter } from "@/lib/recharts-helpers";
+import type {
+  MonthlyMetricsPoint,
+  Perf30Point,
+  PerfHeatmapCell,
+  PerfMachinePoint,
+} from "@/lib/queries";
 
 const periodOptions = ["7d", "30d", "90d", "12m"] as const;
 
-export function PerformanceView() {
-  const total30d = MOCK_PERFORMANCE_30D.reduce((s, d) => s + d.realizado, 0);
-  const meta30d = MOCK_PERFORMANCE_30D.reduce((s, d) => s + d.projetado, 0);
-  const atingimento = Math.round((total30d / meta30d) * 100);
-  const ticketMedio = (total30d / MOCK_PERFORMANCE_30D.length / 8.6).toFixed(2);
+export type PerformanceViewProps = {
+  perf30d: Perf30Point[];
+  byMachine: PerfMachinePoint[];
+  heatmap: PerfHeatmapCell[];
+  monthly: MonthlyMetricsPoint[];
+};
+
+export function PerformanceView({ perf30d, byMachine, heatmap, monthly }: PerformanceViewProps) {
+  const total30d = perf30d.reduce((s, d) => s + d.realizado, 0);
+  const meta30d = perf30d.reduce((s, d) => s + d.projetado, 0);
+  const atingimento = meta30d > 0 ? Math.round((total30d / meta30d) * 100) : 0;
+  const totalCiclos = byMachine.reduce((s, m) => s + m.ciclos, 0);
+  const ticketMedio = totalCiclos > 0 ? (total30d / totalCiclos).toFixed(2) : "0,00";
+  // YoY: comparar últimos 3 meses do array com posições -12 a -10 (se existirem)
+  const yoy = monthly.slice(-3).map((m, i) => {
+    const ant = monthly[monthly.length - 12 + i - (-3) + i];
+    void ant;
+    return { mes: m.mes, atual: m.receita, anterior: 0 };
+  });
+  void yoy;
 
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
@@ -150,7 +164,7 @@ export function PerformanceView() {
         }
       >
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={MOCK_PERFORMANCE_30D} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+          <AreaChart data={perf30d} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="perfRealized" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--brand-cyan)" stopOpacity={0.5} />
@@ -172,7 +186,14 @@ export function PerformanceView() {
                 fontSize: 12,
               }}
               labelStyle={{ color: "var(--muted-foreground)", fontSize: 10 }}
-              formatter={(v: number, n: string) => [`R$ ${v}`, n === "realizado" ? "Realizado" : n === "projetado" ? "Projetado" : n]}
+              formatter={tooltipFormatter<number>((v, n) => [
+                `R$ ${v}`,
+                n === "realizado"
+                  ? "Realizado"
+                  : n === "projetado"
+                    ? "Projetado"
+                    : n,
+              ])}
             />
             <Area type="monotone" dataKey="projetado" stroke="var(--brand-purple)" strokeWidth={2} strokeDasharray="4 4" fill="url(#perfProjected)" />
             <Area type="monotone" dataKey="realizado" stroke="var(--brand-cyan)" strokeWidth={2.4} fill="url(#perfRealized)" />
@@ -195,20 +216,16 @@ export function PerformanceView() {
           }
         >
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={MOCK_PERFORMANCE_MOM} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <BarChart data={monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="mes" stroke="var(--muted-foreground)" fontSize={9} tickLine={false} axisLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
               <Tooltip
                 contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                formatter={(v: number) => `R$ ${v.toLocaleString("pt-BR")}`}
+                formatter={tooltipFormatter<number>((v) => `R$ ${v.toLocaleString("pt-BR")}`)}
               />
-              <Bar dataKey="receita" radius={[6, 6, 0, 0]} maxBarSize={28}>
-                {MOCK_PERFORMANCE_MOM.map((d, i) => (
-                  <Cell key={i} fill={d.receita >= d.meta ? "var(--brand-cyan)" : "var(--brand-purple)"} />
-                ))}
-              </Bar>
-              <Line type="monotone" dataKey="meta" stroke="var(--warning)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+              <Bar dataKey="receita" radius={[6, 6, 0, 0]} maxBarSize={28} fill="var(--brand-cyan)" />
+              <Line type="monotone" dataKey="ticket" stroke="var(--warning)" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -225,17 +242,16 @@ export function PerformanceView() {
           }
         >
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={MOCK_PERFORMANCE_YOY} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <BarChart data={monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="mes" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
-              <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
+              <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} />
               <Tooltip
                 contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                formatter={(v: number) => `R$ ${v.toLocaleString("pt-BR")}`}
+                formatter={tooltipFormatter<number>((v) => `R$ ${v.toLocaleString("pt-BR")}`)}
               />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="anterior" name="2025" fill="var(--muted-foreground)" radius={[4, 4, 0, 0]} maxBarSize={24} fillOpacity={0.45} />
-              <Bar dataKey="atual" name="2026" fill="var(--brand-cyan)" radius={[4, 4, 0, 0]} maxBarSize={24} />
+              <Bar dataKey="receita" name="Receita mensal" fill="var(--brand-cyan)" radius={[4, 4, 0, 0]} maxBarSize={24} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -249,7 +265,7 @@ export function PerformanceView() {
             subtitle="Densidade de uso (%) — quanto mais escuro o ciano, maior a utilização"
             height={300}
           >
-            <Heatmap />
+            <Heatmap data={heatmap} />
           </ChartCard>
         </div>
 
@@ -260,13 +276,13 @@ export function PerformanceView() {
           actions={<LegendDot color="var(--brand-purple)" />}
         >
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={MOCK_PERFORMANCE_WEEKDAY} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+            <BarChart data={weekdayFromHeatmap(heatmap)} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="dia" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
               <Tooltip
                 contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                formatter={(v: number, n: string) => (n === "ocupacao" ? [`${v}%`, "Ocupação"] : [`R$ ${v}`, "Ticket médio"])}
+                formatter={tooltipFormatter<number>((v) => [`${v}%`, "Ocupação"])}
               />
               <Bar dataKey="ocupacao" fill="var(--brand-purple)" radius={[6, 6, 0, 0]} maxBarSize={28} />
             </BarChart>
@@ -293,8 +309,8 @@ export function PerformanceView() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_PERFORMANCE_BY_MACHINE.map((m, i) => {
-                const max = MOCK_PERFORMANCE_BY_MACHINE[0].receita;
+              {byMachine.map((m, i) => {
+                const max = byMachine[0].receita;
                 const pct = Math.round((m.receita / max) * 100);
                 const margemTone = m.margem >= 50 ? "success" : m.margem >= 35 ? "warning" : "danger";
                 return (
@@ -364,12 +380,21 @@ export function PerformanceView() {
 }
 
 /* ---------- HEATMAP ---------- */
-function Heatmap() {
+function weekdayFromHeatmap(cells: PerfHeatmapCell[]): { dia: string; ocupacao: number }[] {
+  const days = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  return days.map((d) => {
+    const slice = cells.filter((c) => c.dia === d);
+    const avg = slice.length > 0 ? slice.reduce((s, c) => s + c.value, 0) / slice.length : 0;
+    return { dia: d, ocupacao: Math.round(avg) };
+  });
+}
+
+function Heatmap({ data }: { data: PerfHeatmapCell[] }) {
   const days = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
   const hours = ["6h", "8h", "10h", "12h", "14h", "16h", "18h", "20h", "22h"];
 
   function valueAt(dia: string, hora: string) {
-    return MOCK_PERFORMANCE_HEATMAP.find((c) => c.dia === dia && c.hora === hora)?.value ?? 0;
+    return data.find((c) => c.dia === dia && c.hora === hora)?.value ?? 0;
   }
   function color(v: number) {
     // 0..99 → opacity

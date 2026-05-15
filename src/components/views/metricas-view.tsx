@@ -32,11 +32,12 @@ import { ChartCard, LegendDot } from "@/components/ui/chart-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { InsightCard } from "@/components/ui/insight-card";
 import { Button } from "@/components/ui/button";
-import {
-  MOCK_METRICS,
-  MOCK_METRICS_HISTORY,
-  MOCK_UNIT_COSTS,
-} from "@/lib/mock-data";
+import { tooltipFormatter } from "@/lib/recharts-helpers";
+import type {
+  MetricGaugeData,
+  MonthlyMetricsPoint,
+  UnitCostPoint,
+} from "@/lib/queries";
 
 const toneClassMap = {
   cyan: { bar: "bg-brand-cyan", text: "text-brand-cyan", glow: "glow-cyan" },
@@ -46,7 +47,13 @@ const toneClassMap = {
   danger: { bar: "bg-danger", text: "text-danger", glow: "" },
 } as const;
 
-export function MetricasView() {
+export type MetricasViewProps = {
+  metrics: MetricGaugeData[];
+  history: MonthlyMetricsPoint[];
+  unitCosts: UnitCostPoint[];
+};
+
+export function MetricasView({ metrics, history, unitCosts }: MetricasViewProps) {
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
       <PageHeader
@@ -67,7 +74,7 @@ export function MetricasView() {
 
       {/* Gauges grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {MOCK_METRICS.map((m, i) => (
+        {metrics.map((m, i) => (
           <MetricGauge key={m.key} metric={m} delay={i * 0.05} />
         ))}
       </div>
@@ -86,13 +93,17 @@ export function MetricasView() {
           }
         >
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={MOCK_METRICS_HISTORY} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
+            <LineChart data={history} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="mes" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
               <Tooltip
                 contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                formatter={(v: number, n: string) => (n === "freq" ? [`${(v * 10).toFixed(1)}`, "Freq x10"] : [`R$ ${(+v).toFixed(2)}`, "Ticket"])}
+                formatter={tooltipFormatter<number>((v, n) =>
+                  n === "freq"
+                    ? [`${(v * 10).toFixed(1)}`, "Freq x10"]
+                    : [`R$ ${(+v).toFixed(2)}`, "Ticket"]
+                )}
               />
               <Line type="monotone" dataKey="ticket" stroke="var(--brand-cyan)" strokeWidth={2.4} dot={false} activeDot={{ r: 5 }} />
               <Line type="monotone" dataKey="freq" stroke="var(--brand-purple)" strokeWidth={2.4} dot={false} activeDot={{ r: 5 }} />
@@ -101,27 +112,31 @@ export function MetricasView() {
         </ChartCard>
 
         <ChartCard
-          title="Evolução · ocupação e NPS"
+          title="Evolução · ocupação e receita"
           subtitle="Indicadores de saúde da operação"
           height={280}
           actions={
             <div className="flex items-center gap-3 text-[11px]">
               <LegendDot color="var(--warning)" /> Ocupação (%)
-              <LegendDot color="var(--success)" /> NPS
+              <LegendDot color="var(--success)" /> Receita (R$)
             </div>
           }
         >
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={MOCK_METRICS_HISTORY} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
+            <LineChart data={history} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="mes" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
               <Tooltip
                 contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                formatter={(v: number, n: string) => (n === "ocupacao" ? [`${v.toFixed(1)}%`, "Ocupação"] : [`${v.toFixed(0)}`, "NPS"])}
+                formatter={tooltipFormatter<number>((v, n) =>
+                  n === "ocupacao"
+                    ? [`${v.toFixed(1)}%`, "Ocupação"]
+                    : [`R$ ${v.toFixed(0)}`, "Receita"]
+                )}
               />
               <Line type="monotone" dataKey="ocupacao" stroke="var(--warning)" strokeWidth={2.4} dot={false} activeDot={{ r: 5 }} />
-              <Line type="monotone" dataKey="nps" stroke="var(--success)" strokeWidth={2.4} dot={false} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="receita" stroke="var(--success)" strokeWidth={2.4} dot={false} activeDot={{ r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -139,23 +154,37 @@ export function MetricasView() {
           </div>
         }
       >
+        {unitCosts.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-center">
+            <div className="max-w-xs">
+              <p className="text-sm font-semibold text-foreground">Sem custos lançados ainda.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Crie a tabela de custos operacionais para acompanhar a margem por ciclo.
+              </p>
+            </div>
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={MOCK_UNIT_COSTS} margin={{ top: 8, right: 16, left: -8, bottom: 0 }} layout="vertical">
+          <BarChart data={unitCosts} margin={{ top: 8, right: 16, left: -8, bottom: 0 }} layout="vertical">
             <CartesianGrid stroke="var(--border)" horizontal={false} strokeDasharray="3 3" />
             <XAxis type="number" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `R$ ${v.toFixed(2)}`} />
             <YAxis type="category" dataKey="categoria" stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} width={90} />
             <Tooltip
               contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-              formatter={(v: number, n: string) => [`R$ ${(+v).toFixed(2)}`, n === "valor" ? "Realizado" : "Meta"]}
+              formatter={tooltipFormatter<number>((v, n) => [
+                `R$ ${(+v).toFixed(2)}`,
+                n === "valor" ? "Realizado" : "Meta",
+              ])}
             />
             <Bar dataKey="valor" radius={[0, 6, 6, 0]} maxBarSize={20}>
-              {MOCK_UNIT_COSTS.map((d, i) => (
+              {unitCosts.map((d, i) => (
                 <Cell key={i} fill={d.valor <= d.target ? "var(--brand-cyan)" : "var(--danger)"} />
               ))}
             </Bar>
             <Bar dataKey="target" radius={[0, 6, 6, 0]} maxBarSize={4} fill="var(--warning)" fillOpacity={0.7} />
           </BarChart>
         </ResponsiveContainer>
+        )}
       </ChartCard>
 
       {/* Insights */}
@@ -187,7 +216,7 @@ export function MetricasView() {
 }
 
 /* ---------- Gauge ---------- */
-function MetricGauge({ metric, delay }: { metric: (typeof MOCK_METRICS)[number]; delay: number }) {
+function MetricGauge({ metric, delay }: { metric: MetricGaugeData; delay: number }) {
   const range = metric.max - metric.min;
   const pct = Math.max(0, Math.min(100, ((metric.value - metric.min) / range) * 100));
   const targetPct = Math.max(0, Math.min(100, ((metric.target - metric.min) / range) * 100));

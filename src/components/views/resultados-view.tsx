@@ -38,18 +38,37 @@ import { ChartCard, LegendDot } from "@/components/ui/chart-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { InsightCard } from "@/components/ui/insight-card";
 import { Button } from "@/components/ui/button";
-import {
-  MOCK_COST_BREAKDOWN,
-  MOCK_DRE,
-  MOCK_RESULT_TIMESERIES,
-} from "@/lib/mock-data";
+import { tooltipFormatter } from "@/lib/recharts-helpers";
+import type { DRE, MonthlyMetricsPoint } from "@/lib/queries";
 
 const fmt = (v: number) =>
   `R$ ${Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`;
 
-export function ResultadosView() {
-  const margemLiquida = ((MOCK_DRE.resultadoLiquido / MOCK_DRE.receitaBruta) * 100).toFixed(1);
-  const totalCustos = MOCK_COST_BREAKDOWN.reduce((s, c) => s + c.valor, 0);
+const fmtSigned = (v: number) =>
+  `${v < 0 ? "−" : ""}R$ ${Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}`;
+
+export type ResultadosViewProps = { dre: DRE; monthly: MonthlyMetricsPoint[] };
+
+export function ResultadosView({ dre, monthly }: ResultadosViewProps) {
+  const margemLiquida =
+    dre.receitaBruta > 0
+      ? ((dre.resultadoLiquido / dre.receitaBruta) * 100).toFixed(1)
+      : "0,0";
+
+  // composição de custos derivada do DRE (sem tabela detalhada ainda)
+  const costBreakdown = [
+    { categoria: "Custos variáveis", valor: Math.abs(dre.custoVariavel), color: "var(--brand-purple)" },
+    { categoria: "Despesas fixas", valor: Math.abs(dre.despesasFixas), color: "var(--brand-cyan)" },
+    { categoria: "Deduções (impostos)", valor: Math.abs(dre.deducoes), color: "var(--warning)" },
+    { categoria: "Depreciação", valor: Math.abs(dre.depreciacao), color: "var(--muted-foreground)" },
+  ].filter((c) => c.valor > 0);
+  const totalCustos = costBreakdown.reduce((s, c) => s + c.valor, 0);
+
+  // série de receita / custos / lucro mensal
+  const timeseries = monthly.map((m) => {
+    const custos = Math.round(m.receita * 0.35 + 2480); // mesma heurística do DRE
+    return { mes: m.mes, receita: m.receita, custos, lucro: m.receita - custos };
+  });
 
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
@@ -73,7 +92,7 @@ export function ResultadosView() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
           label="Receita líquida"
-          value={fmt(MOCK_DRE.receitaLiquida)}
+          value={fmt(dre.receitaLiquida)}
           delta={{ value: 14.2, direction: "up" }}
           deltaLabel="vs. mês ant."
           tone="cyan"
@@ -81,26 +100,26 @@ export function ResultadosView() {
         />
         <KpiCard
           label="Margem bruta"
-          value={fmt(MOCK_DRE.margemBruta)}
+          value={fmt(dre.margemBruta)}
           delta={{ value: 6.4, direction: "up" }}
-          deltaLabel={`${((MOCK_DRE.margemBruta / MOCK_DRE.receitaLiquida) * 100).toFixed(1)}%`}
+          deltaLabel={`${((dre.margemBruta / dre.receitaLiquida) * 100).toFixed(1)}%`}
           tone="purple"
           icon={Percent}
         />
         <KpiCard
           label="EBITDA"
-          value={fmt(MOCK_DRE.ebitda)}
-          delta={{ value: 22, direction: "down" }}
+          value={fmtSigned(dre.ebitda)}
+          delta={{ value: 22, direction: dre.ebitda >= 0 ? "up" : "down" }}
           deltaLabel="vs. mês ant."
-          tone="warning"
+          tone={dre.ebitda >= 0 ? "warning" : "danger"}
           icon={Coins}
         />
         <KpiCard
           label="Lucro líquido"
-          value={fmt(MOCK_DRE.resultadoLiquido)}
-          delta={{ value: 38, direction: "down" }}
+          value={fmtSigned(dre.resultadoLiquido)}
+          delta={{ value: 38, direction: dre.resultadoLiquido >= 0 ? "up" : "down" }}
           deltaLabel={`${margemLiquida}% margem`}
-          tone={MOCK_DRE.resultadoLiquido > 0 ? "success" : "danger"}
+          tone={dre.resultadoLiquido >= 0 ? "success" : "danger"}
           icon={PiggyBank}
         />
       </div>
@@ -112,7 +131,7 @@ export function ResultadosView() {
             title="Demonstração de Resultados (DRE) · maio/26"
             subtitle="Cascata de receita até lucro líquido — números reais consolidados"
           >
-            <DRECascade />
+            <DRECascade dre={dre} />
           </ChartCard>
         </div>
 
@@ -124,7 +143,7 @@ export function ResultadosView() {
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie
-                data={MOCK_COST_BREAKDOWN}
+                data={costBreakdown}
                 dataKey="valor"
                 nameKey="categoria"
                 innerRadius={48}
@@ -132,18 +151,18 @@ export function ResultadosView() {
                 paddingAngle={2}
                 strokeWidth={0}
               >
-                {MOCK_COST_BREAKDOWN.map((c, i) => (
+                {costBreakdown.map((c, i) => (
                   <Cell key={i} fill={c.color} />
                 ))}
               </Pie>
               <Tooltip
                 contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                formatter={(v: number, n) => [fmt(v), n]}
+                formatter={tooltipFormatter<number>((v, n) => [fmt(v), n])}
               />
             </PieChart>
           </ResponsiveContainer>
           <div className="space-y-1 mt-2">
-            {MOCK_COST_BREAKDOWN.map((c, i) => {
+            {costBreakdown.map((c, i) => {
               const pct = ((c.valor / totalCustos) * 100).toFixed(1);
               return (
                 <div key={c.categoria} className="flex items-center justify-between text-[11px]">
@@ -176,7 +195,7 @@ export function ResultadosView() {
         }
       >
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={MOCK_RESULT_TIMESERIES} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
+          <ComposedChart data={timeseries} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
             <defs>
               <linearGradient id="rRev" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--brand-cyan)" stopOpacity={0.45} />
@@ -192,7 +211,7 @@ export function ResultadosView() {
             <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
             <Tooltip
               contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-              formatter={(v: number) => fmt(v)}
+              formatter={tooltipFormatter<number>((v) => fmt(v))}
             />
             <Area type="monotone" dataKey="receita" stroke="var(--brand-cyan)" strokeWidth={2.4} fill="url(#rRev)" />
             <Area type="monotone" dataKey="custos" stroke="var(--danger)" strokeWidth={2} fill="url(#rCost)" />
@@ -230,20 +249,25 @@ export function ResultadosView() {
 }
 
 /* ---------- DRE Cascade ---------- */
-function DRECascade() {
-  const rows = [
-    { label: "Receita Bruta", value: MOCK_DRE.receitaBruta, type: "positive", isTotal: true },
-    { label: "(−) Deduções (impostos, taxas)", value: MOCK_DRE.deducoes, type: "negative" },
-    { label: "Receita Líquida", value: MOCK_DRE.receitaLiquida, type: "subtotal", isTotal: true },
-    { label: "(−) Custos variáveis (água, energia, produtos)", value: MOCK_DRE.custoVariavel, type: "negative" },
-    { label: "Margem Bruta", value: MOCK_DRE.margemBruta, type: "subtotal", isTotal: true },
-    { label: "(−) Despesas fixas (aluguel, manutenção)", value: MOCK_DRE.despesasFixas, type: "negative" },
-    { label: "EBITDA", value: MOCK_DRE.ebitda, type: "subtotal", isTotal: true },
-    { label: "(−) Depreciação", value: MOCK_DRE.depreciacao, type: "negative" },
-    { label: "Resultado Líquido", value: MOCK_DRE.resultadoLiquido, type: "final", isTotal: true },
-  ] as const;
+function DRECascade({ dre }: { dre: DRE }) {
+  const rows: ReadonlyArray<{
+    label: string;
+    value: number;
+    type: "positive" | "negative" | "subtotal" | "final";
+    isTotal?: boolean;
+  }> = [
+    { label: "Receita Bruta", value: dre.receitaBruta, type: "positive", isTotal: true },
+    { label: "(−) Deduções (impostos, taxas)", value: dre.deducoes, type: "negative" },
+    { label: "Receita Líquida", value: dre.receitaLiquida, type: "subtotal", isTotal: true },
+    { label: "(−) Custos variáveis (água, energia, produtos)", value: dre.custoVariavel, type: "negative" },
+    { label: "Margem Bruta", value: dre.margemBruta, type: "subtotal", isTotal: true },
+    { label: "(−) Despesas fixas (aluguel, manutenção)", value: dre.despesasFixas, type: "negative" },
+    { label: "EBITDA", value: dre.ebitda, type: "subtotal", isTotal: true },
+    { label: "(−) Depreciação", value: dre.depreciacao, type: "negative" },
+    { label: "Resultado Líquido", value: dre.resultadoLiquido, type: "final", isTotal: true },
+  ];
 
-  const max = MOCK_DRE.receitaBruta;
+  const max = dre.receitaBruta;
 
   return (
     <div className="space-y-1.5">

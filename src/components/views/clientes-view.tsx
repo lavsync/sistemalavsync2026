@@ -38,6 +38,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { InsightCard } from "@/components/ui/insight-card";
 import { Button } from "@/components/ui/button";
+import { tooltipFormatter } from "@/lib/recharts-helpers";
 import {
   MOCK_CLIENT_GROWTH,
   MOCK_CLIENT_RETENTION,
@@ -102,7 +103,7 @@ export function ClientesView() {
                 </Pie>
                 <Tooltip
                   contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                  formatter={(v: number, n) => [`${v} clientes`, n]}
+                  formatter={tooltipFormatter<number>((v, n) => [`${v} clientes`, n])}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -181,7 +182,7 @@ export function ClientesView() {
               <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
               <Tooltip
                 contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 12, fontSize: 12 }}
-                formatter={(v: number) => `${v}% retenção`}
+                formatter={tooltipFormatter<number>((v) => `${v}% retenção`)}
               />
               <Line
                 type="monotone"
