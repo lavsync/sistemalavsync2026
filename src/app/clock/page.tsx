@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { DashboardView } from "@/components/views/dashboard-view";
+import { ClockView } from "@/components/views/clock-view";
 
 export default function Page() {
   return (
-    <AppShell>
-      <DashboardView />
+    <AppShell hideClockRail>
+      <ClockView />
     </AppShell>
   );
 }

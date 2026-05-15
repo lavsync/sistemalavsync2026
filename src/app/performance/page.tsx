@@ -1,10 +1,10 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { DashboardView } from "@/components/views/dashboard-view";
+import { PerformanceView } from "@/components/views/performance-view";
 
 export default function Page() {
   return (
     <AppShell>
-      <DashboardView />
+      <PerformanceView />
     </AppShell>
   );
 }
