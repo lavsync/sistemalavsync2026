@@ -20,7 +20,7 @@ export const NAVIGATION: NavItem[] = [
   { label: "Financeiro", href: "/resultados", group: "operacional" },
   { label: "Clientes", href: "/clientes", group: "operacional" },
   { label: "Marketing", href: "/publicidade", group: "operacional" },
-  { label: "Operação", href: "/agenda", group: "operacional" },
+  { label: "Agenda", href: "/agenda", group: "operacional" },
 
   // INTELIGÊNCIA
   { label: "Analytics", href: "/metricas", group: "inteligencia" },

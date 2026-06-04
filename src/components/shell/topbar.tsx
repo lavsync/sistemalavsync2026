@@ -1,27 +1,39 @@
 "use client";
 
-import { Bell, Calendar, Command, Moon, Search, Sun } from "lucide-react";
+import { Bell, Command, Moon, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useEffect, useState } from "react";
+import { LiveClock } from "./live-clock";
+import { MobileNavTrigger } from "./mobile-nav";
+import { UnidadeSwitcher, type UnidadeOpt } from "./unidade-switcher";
 
-export function Topbar() {
+export function Topbar({
+  unidades,
+  unidadeAtivaId,
+}: {
+  unidades: UnidadeOpt[];
+  unidadeAtivaId: string;
+}) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   return (
     <header className="sticky top-0 z-30 h-14 border-b border-border bg-background/80 backdrop-blur-xl">
-      <div className="h-full flex items-center gap-3 px-5">
-        {/* Search */}
-        <div className="flex-1 max-w-md">
+      <div className="h-full flex items-center gap-2 px-3 md:gap-3 md:px-5">
+        {/* Mobile menu trigger */}
+        <MobileNavTrigger />
+
+        {/* Search — hidden on smallest, expands on sm+ */}
+        <div className="flex-1 max-w-md min-w-0">
           <div className="group relative flex items-center gap-2 px-3 py-1.5 rounded-md bg-surface-glass border border-border hover:border-border-strong transition-smooth">
-            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <input
               type="text"
-              placeholder="Buscar relatório, cliente, máquina, alerta..."
-              className="bg-transparent text-xs flex-1 outline-none placeholder:text-muted-foreground/70"
+              placeholder="Buscar..."
+              className="bg-transparent text-xs flex-1 outline-none placeholder:text-muted-foreground/70 min-w-0"
             />
             <kbd className="hidden md:inline-flex items-center gap-0.5 text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border">
               <Command className="w-2.5 h-2.5" /> K
@@ -31,12 +43,16 @@ export function Topbar() {
 
         {/* Right cluster */}
         <div className="flex items-center gap-1.5">
-          {/* Period chip */}
-          <button className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-glass border border-border text-xs font-medium hover:border-border-strong transition-smooth">
-            <Calendar className="w-3 h-3 text-brand-cyan" />
-            Maio · 2026
-            <svg viewBox="0 0 24 24" className="w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
+          {/* Switcher de unidade — sempre visível, é a base do contexto */}
+          <UnidadeSwitcher unidades={unidades} ativaId={unidadeAtivaId} />
+
+          {/* Live clock — compact mobile, full desktop */}
+          <div className="md:hidden">
+            <LiveClock compact />
+          </div>
+          <div className="hidden md:block">
+            <LiveClock />
+          </div>
 
           {/* Status pill */}
           <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-success/10 border border-success/20 text-[11px] font-semibold text-success">

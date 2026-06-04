@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { listarUnidades, getUnidadeAtiva } from "@/lib/unidade-ativa";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { ClockRail } from "./clock-rail";
@@ -22,12 +23,19 @@ export async function AppShell({
   if (!user) redirect("/login");
 
   const sessionUser = toSessionUser(user);
+  const [unidades, unidadeAtiva] = await Promise.all([
+    listarUnidades(),
+    getUnidadeAtiva(),
+  ]);
 
   return (
     <div className="min-h-screen flex items-start bg-mesh-dark">
       <Sidebar user={sessionUser} signOutSlot={<SignOutButton />} />
       <div className="flex-1 min-w-0 flex flex-col self-stretch">
-        <Topbar />
+        <Topbar
+          unidades={unidades.map((u) => ({ id: u.id, nome: u.nome }))}
+          unidadeAtivaId={unidadeAtiva.id}
+        />
         <main className="flex-1 flex">
           <div className="flex-1 min-w-0">{children}</div>
           {!hideClockRail && <ClockRail />}

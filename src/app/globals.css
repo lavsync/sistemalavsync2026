@@ -476,3 +476,28 @@
   background: rgba(99, 102, 241, 0.06);
   box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.10);
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+   Form input — usado nos formulários internos (Agenda, Cadastros etc.)
+   ──────────────────────────────────────────────────────────────────────── */
+.form-input {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--surface-glass, var(--card));
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+.form-input::placeholder { color: var(--muted-foreground); opacity: 0.7; }
+.form-input:hover { border-color: var(--border-strong, var(--border)); }
+.form-input:focus {
+  border-color: var(--brand-cyan);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-cyan) 18%, transparent);
+}
+select.form-input { appearance: none; cursor: pointer; padding-right: 1.75rem; }
+textarea.form-input { min-height: 5rem; }
