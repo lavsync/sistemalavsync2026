@@ -30,8 +30,25 @@ export type ImportResult = {
   totalLinhas: number;
   inseridos: number;
   atualizados: number;
+  enriquecidos: number;
+  semMudanca: number;
   ignorados: number;
   erros: Array<{ linha: number; motivo: string }>;
+};
+
+export type ImportMode = "append" | "upsert" | "merge";
+
+// Tipos auxiliares pra merge
+type ClienteExistente = {
+  id: string;
+  cpf: string;
+  email: string | null;
+  telefone: string | null;
+  data_nascimento: string | null;
+  genero: string | null;
+  cadastrado_em: string | null;
+  ultima_compra_em: string | null;
+  observacoes: string | null;
 };
 
 function normalizarCpfDigitos(cpf: string): string {
@@ -45,7 +62,7 @@ export async function importarClientes(
     arquivoNome: string;
     arquivoTamanho?: number;
     origemSistema?: string;
-    modo?: "append" | "upsert";
+    modo?: ImportMode;
     snapshotEm?: string | null;
   },
 ): Promise<ImportResult> {
@@ -142,22 +159,26 @@ export async function importarClientes(
 
   let inseridos = 0;
   let atualizados = 0;
+  let enriquecidos = 0;
+  let semMudanca = 0;
   let ignorados = 0;
+
+  const modo: ImportMode = meta.modo ?? "upsert";
 
   const CHUNK = 100;
   for (let i = 0; i < linhasValidas.length; i += CHUNK) {
     const chunk = linhasValidas.slice(i, i + CHUNK);
-    // Buscar quais CPFs já existem nessa unidade
-    const cpfsChunk = chunk.map((r) => normalizarCpfDigitos(r.cpf as string));
-    const { data: existentes } = await supabase
+
+    // Buscar quais CPFs já existem nessa unidade (com campos necessários pra merge)
+    const { data: existentesRaw } = await supabase
       .from("clientes")
-      .select("id, cpf")
+      .select("id, cpf, email, telefone, data_nascimento, genero, cadastrado_em, ultima_compra_em, observacoes")
       .eq("unidade_id", unidadeId)
       .in("cpf", chunk.map((r) => r.cpf as string));
 
-    const mapaExistentes = new Map<string, string>(); // cpfDigitos → id
-    for (const e of (existentes ?? []) as Array<{ id: string; cpf: string }>) {
-      mapaExistentes.set(normalizarCpfDigitos(e.cpf), e.id);
+    const mapaExistentes = new Map<string, ClienteExistente>();
+    for (const e of (existentesRaw ?? []) as ClienteExistente[]) {
+      mapaExistentes.set(normalizarCpfDigitos(e.cpf), e);
     }
 
     const aInserir = chunk.filter((r) => !mapaExistentes.has(normalizarCpfDigitos(r.cpf as string)));
@@ -175,12 +196,12 @@ export async function importarClientes(
     }
 
     if (aAtualizar.length > 0) {
-      if ((meta.modo ?? "upsert") === "append") {
+      if (modo === "append") {
         ignorados += aAtualizar.length;
-      } else {
-        // upsert manual: 1 update por linha (poucas linhas geralmente)
+      } else if (modo === "upsert") {
+        // upsert: sobrescreve TUDO com o que veio (use só quando o novo dado é o mais recente)
         for (const row of aAtualizar) {
-          const id = mapaExistentes.get(normalizarCpfDigitos(row.cpf as string))!;
+          const ex = mapaExistentes.get(normalizarCpfDigitos(row.cpf as string))!;
           const { error: eU } = await supabase
             .from("clientes")
             .update({
@@ -203,24 +224,72 @@ export async function importarClientes(
               origem_sistema: row.origem_sistema,
               importacao_id: importacaoId,
             })
-            .eq("id", id);
-          if (eU) erros.push({ linha: -1, motivo: `Erro update id=${id}: ${eU.message}` });
+            .eq("id", ex.id);
+          if (eU) erros.push({ linha: -1, motivo: `Erro update id=${ex.id}: ${eU.message}` });
           else atualizados += 1;
+        }
+      } else {
+        // modo "merge": enriquece sem sobrescrever
+        // - campos de contato/cadastro: preenche só se base estiver vazia
+        // - cadastrado_em: mantém o MAIS ANTIGO (jornada começou antes)
+        // - ultima_compra_em: mantém o MAIS RECENTE (compra mais nova ganha)
+        // - métricas (compras_*): NUNCA sobrescreve (a base tem snapshot mais recente)
+        // - observacoes: append com trail do enriquecimento
+        const ts = new Date().toISOString().slice(0, 10);
+        const origemRotulo = (meta.origemSistema ?? "vm_tecnologia").toUpperCase();
+
+        for (const row of aAtualizar) {
+          const cpfDig = normalizarCpfDigitos(row.cpf as string);
+          const ex = mapaExistentes.get(cpfDig)!;
+
+          const patch: Record<string, unknown> = {};
+          const novo = (k: string) => row[k as keyof typeof row];
+
+          // Coalesce: só preenche se base vazia
+          if (!ex.email && novo("email")) patch.email = novo("email");
+          if (!ex.telefone && novo("telefone")) patch.telefone = novo("telefone");
+          if (!ex.data_nascimento && novo("data_nascimento")) patch.data_nascimento = novo("data_nascimento");
+          if (!ex.genero && novo("genero")) patch.genero = novo("genero");
+
+          // cadastrado_em: MIN
+          const novoCad = novo("cadastrado_em") as string | null;
+          if (novoCad && (!ex.cadastrado_em || new Date(novoCad) < new Date(ex.cadastrado_em))) {
+            patch.cadastrado_em = novoCad;
+          }
+          // ultima_compra_em: MAX
+          const novaUlt = novo("ultima_compra_em") as string | null;
+          if (novaUlt && (!ex.ultima_compra_em || new Date(novaUlt) > new Date(ex.ultima_compra_em))) {
+            patch.ultima_compra_em = novaUlt;
+          }
+
+          if (Object.keys(patch).length === 0) {
+            semMudanca += 1;
+            continue;
+          }
+
+          // Trail de auditoria nas observações
+          const nota = `[${ts}] Enriquecido com ${origemRotulo}: ${Object.keys(patch).join(", ")}`;
+          patch.observacoes = ex.observacoes ? `${ex.observacoes}\n${nota}` : nota;
+          patch.importacao_id = importacaoId;
+
+          const { error: eM } = await supabase.from("clientes").update(patch).eq("id", ex.id);
+          if (eM) erros.push({ linha: -1, motivo: `Erro merge id=${ex.id}: ${eM.message}` });
+          else enriquecidos += 1;
         }
       }
     }
   }
 
-  // Atualizar registro de importação
+  // Atualizar registro de importação (enriquecidos contam como atualizados pra fins de auditoria)
   await supabase
     .from("clientes_importacoes")
     .update({
       total_inseridos: inseridos,
-      total_atualizados: atualizados,
-      total_ignorados: ignorados,
+      total_atualizados: atualizados + enriquecidos,
+      total_ignorados: ignorados + semMudanca,
       total_erros: erros.length,
       erros: erros.length > 0 ? erros : null,
-      status: erros.length > 0 ? "concluido" : "concluido",
+      status: "concluido",
       concluido_em: new Date().toISOString(),
     })
     .eq("id", importacaoId);
@@ -232,6 +301,8 @@ export async function importarClientes(
     totalLinhas: payloads.length,
     inseridos,
     atualizados,
+    enriquecidos,
+    semMudanca,
     ignorados,
     erros,
   };

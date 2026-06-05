@@ -45,7 +45,7 @@ export function ImportarClientesDialog({
   const [preview, setPreview] = React.useState<PreviewResp | null>(null);
   const [parseError, setParseError] = React.useState<string | null>(null);
 
-  const [modo, setModo] = React.useState<"upsert" | "append">("upsert");
+  const [modo, setModo] = React.useState<"upsert" | "append" | "merge">("upsert");
   const [origem, setOrigem] = React.useState<"maxlav" | "vm_tecnologia" | "manual">("maxlav");
 
   const [importing, setImporting] = React.useState(false);
@@ -325,8 +325,9 @@ export function ImportarClientesDialog({
                                 onChange={(e) => setModo(e.target.value as typeof modo)}
                                 className="form-input"
                               >
-                                <option value="upsert">Upsert — atualiza se CPF já existe</option>
-                                <option value="append">Append — ignora duplicatas existentes</option>
+                                <option value="upsert">Upsert — sobrescreve dados se CPF já existe (novo é mais recente)</option>
+                                <option value="merge">Merge — enriquece sem sobrescrever (backup/legado)</option>
+                                <option value="append">Append — só insere novos, ignora duplicatas</option>
                               </select>
                             </FieldGroup>
                           </div>
@@ -438,9 +439,11 @@ function ResultadoCard({
           </div>
         </div>
       </div>
-      <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="p-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatBlock label="Novos" value={result.inseridos} tone="success" />
         <StatBlock label="Atualizados" value={result.atualizados} tone="cyan" />
+        <StatBlock label="Enriquecidos" value={result.enriquecidos} tone="cyan" />
+        <StatBlock label="Sem mudança" value={result.semMudanca} tone="muted" />
         <StatBlock label="Ignorados" value={result.ignorados} tone="muted" />
         <StatBlock label="Erros" value={result.erros.length} tone={result.erros.length ? "danger" : "muted"} />
       </div>
