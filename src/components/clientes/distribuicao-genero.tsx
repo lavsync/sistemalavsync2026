@@ -59,7 +59,10 @@ export function DistribuicaoGenero({ slices }: { slices: GeneroSlice[] }) {
                 outerRadius={100}
                 paddingAngle={2}
                 strokeWidth={0}
-                onMouseEnter={(d) => setHover((d as GeneroSlice).key)}
+                onMouseEnter={(d) => {
+                  const slice = d as unknown as { key?: string };
+                  if (slice?.key) setHover(slice.key);
+                }}
                 onMouseLeave={() => setHover(null)}
               >
                 {slices.map((s) => (
