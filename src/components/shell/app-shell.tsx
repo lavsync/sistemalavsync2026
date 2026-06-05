@@ -30,14 +30,20 @@ export async function AppShell({
 
   return (
     <div className="min-h-screen flex items-start bg-mesh-dark">
+      {/* Sidebar — desktop ocupa espaço, mobile vira drawer via mobile-nav */}
       <Sidebar user={sessionUser} signOutSlot={<SignOutButton />} />
+
+      {/* Coluna principal — min-w-0 essencial pra Recharts ResponsiveContainer reflowar */}
       <div className="flex-1 min-w-0 flex flex-col self-stretch">
         <Topbar
           unidades={unidades.map((u) => ({ id: u.id, nome: u.nome }))}
           unidadeAtivaId={unidadeAtiva.id}
         />
-        <main className="flex-1 flex">
-          <div className="flex-1 min-w-0">{children}</div>
+
+        {/* Main + Copilot rail lado a lado em xl+; mobile o copilot é FAB flutuante */}
+        <main className="flex-1 flex min-w-0">
+          {/* min-w-0 + overflow-x-hidden previnem gráficos/tabelas estourarem layout */}
+          <div className="flex-1 min-w-0 overflow-x-hidden">{children}</div>
           {!hideClockRail && <ClockRail />}
         </main>
       </div>

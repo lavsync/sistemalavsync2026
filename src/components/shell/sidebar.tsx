@@ -15,8 +15,8 @@ import type { SessionUser } from "./types";
 
 const STORAGE_KEY = "lavsync.sidebar.collapsed";
 
-const widthExpanded = 280;
-const widthCollapsed = 88;
+const widthExpanded = 264;
+const widthCollapsed = 80;
 
 export function Sidebar({
   user,
@@ -71,29 +71,33 @@ export function Sidebar({
 /* ============ BRAND HEADER ============ */
 function BrandHeader({ collapsed }: { collapsed: boolean }) {
   return (
-    <div className="px-5 pt-5 pb-4">
-      <Link href="/" className="flex items-center gap-3 group" aria-label="LavSync · Início">
+    <div className={collapsed ? "px-3 pt-6 pb-4" : "px-5 pt-6 pb-4"}>
+      <Link
+        href="/"
+        className="flex flex-col items-center group"
+        aria-label="LavSync · Início"
+      >
         {collapsed ? (
-          // Collapsed: símbolo isolado (Brandbook §02)
-          <div className="relative w-10 h-10 flex items-center justify-center sidebar-logo-glow rounded-xl">
+          // Collapsed: símbolo isolado em destaque (~60px)
+          <div className="relative w-14 h-14 flex items-center justify-center sidebar-logo-glow rounded-2xl">
             <Image
               src="/brand/logo/lavsync-simbolo.png"
               alt="LavSync"
-              width={40}
-              height={40}
+              width={120}
+              height={120}
               priority
-              className="w-9 h-9 object-contain"
+              className="w-12 h-12 object-contain"
             />
           </div>
         ) : (
-          // Expanded: logotipo horizontal branco oficial
+          // Expanded: logo vertical branco oficial — bem grande, destaque máximo
           <Image
-            src="/brand/logo/lavsync-horizontal-branco.png"
+            src="/brand/logo/lavsync-vertical-branco.png"
             alt="LavSync"
-            width={200}
-            height={48}
+            width={400}
+            height={460}
             priority
-            className="h-9 w-auto object-contain"
+            className="h-32 w-auto object-contain drop-shadow-[0_4px_24px_rgba(25,199,203,0.25)]"
           />
         )}
       </Link>
@@ -105,7 +109,7 @@ function BrandHeader({ collapsed }: { collapsed: boolean }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="mt-2 ml-1 text-[9.5px] uppercase tracking-[0.22em] font-semibold text-brand-cyan/70"
+            className="mt-3 text-center text-[9.5px] uppercase tracking-[0.22em] font-semibold text-brand-cyan/80"
           >
             Operations OS · v1.0
           </motion.div>

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Menu, X } from "lucide-react";
@@ -29,9 +30,9 @@ export function MobileNavTrigger() {
       <Dialog.Trigger asChild>
         <button
           aria-label="Abrir menu"
-          className="lg:hidden inline-flex items-center justify-center w-9 h-9 rounded-md bg-surface-glass border border-border hover:border-border-strong transition-smooth shrink-0"
+          className="lg:hidden inline-flex items-center justify-center w-11 h-11 rounded-lg bg-surface-glass border border-border hover:border-border-strong transition-smooth shrink-0 touch-manipulation"
         >
-          <Menu className="w-4 h-4" />
+          <Menu className="w-5 h-5" />
         </button>
       </Dialog.Trigger>
 
@@ -62,36 +63,24 @@ export function MobileNavTrigger() {
                     Navegue entre os módulos do LavSync
                   </Dialog.Description>
 
-                  {/* Header */}
-                  <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border/60">
-                    <Link href="/" className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl sidebar-logo-glow flex items-center justify-center">
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="w-[16px] h-[16px] text-white"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.6"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M12 2.5c-3.5 4.5-6 7.5-6 11a6 6 0 0 0 12 0c0-3.5-2.5-6.5-6-11z" />
-                          <circle cx="12" cy="14" r="2" fill="currentColor" />
-                        </svg>
-                      </div>
-                      <div className="font-display font-bold text-[16px] leading-none tracking-tight text-white">
-                        Lav
-                        <span className="bg-gradient-to-r from-brand-cyan via-brand-blue to-brand-purple bg-clip-text text-transparent">
-                          Sync
-                        </span>
-                      </div>
+                  {/* Header com logo oficial em destaque */}
+                  <div className="flex items-center justify-between px-5 pt-6 pb-4 border-b border-border/60">
+                    <Link href="/" className="flex items-center">
+                      <Image
+                        src="/brand/logo/lavsync-horizontal-branco.png"
+                        alt="LavSync"
+                        width={220}
+                        height={56}
+                        priority
+                        className="h-12 w-auto object-contain"
+                      />
                     </Link>
                     <Dialog.Close asChild>
                       <button
                         aria-label="Fechar menu"
-                        className="w-8 h-8 rounded-md flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-smooth"
+                        className="w-11 h-11 rounded-md flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-smooth touch-manipulation"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="w-5 h-5" />
                       </button>
                     </Dialog.Close>
                   </div>
@@ -115,9 +104,9 @@ export function MobileNavTrigger() {
                                   key={item.href}
                                   href={item.href}
                                   className={cn(
-                                    "group flex items-center gap-3 px-3 h-11 rounded-xl text-[14px] tracking-tight transition-smooth",
+                                    "group flex items-center gap-3 px-3 h-12 rounded-xl text-[14px] tracking-tight transition-smooth touch-manipulation",
                                     active
-                                      ? "bg-white/10 text-white font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                                      ? "bg-brand-cyan/15 text-brand-cyan font-semibold border-l-2 border-brand-cyan"
                                       : "text-white/70 hover:text-white hover:bg-white/5",
                                   )}
                                 >
@@ -158,8 +147,8 @@ export function MobileNavTrigger() {
                   </nav>
 
                   {/* Footer hint */}
-                  <div className="px-5 py-4 border-t border-border/60 text-[10px] text-white/40 uppercase tracking-[0.18em]">
-                    LavSync v0.1 · Operations OS
+                  <div className="px-5 py-4 border-t border-border/60 text-[10px] text-brand-cyan/70 uppercase tracking-[0.18em]">
+                    Operations OS · v1.0
                   </div>
                 </motion.div>
               </Dialog.Content>
