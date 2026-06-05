@@ -5,17 +5,21 @@ import {
   getSegmentacaoRFM,
   getTopClientes,
   getCrescimentoSemanal,
+  getDistribuicaoGenero,
+  getNovosClientes,
   listarClientes,
   type AtividadeFiltro,
   type OrigemFiltro,
   type GeneroFiltro,
   type OrdenacaoFiltro,
+  type PeriodoNovos,
 } from "@/lib/clientes-queries";
 import { getUnidadeAtiva } from "@/lib/unidade-ativa";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
+const PERIODOS_VALIDOS: PeriodoNovos[] = ["hoje", "7d", "30d", "180d", "1y"];
 
 export default async function Page({
   searchParams,
@@ -27,6 +31,7 @@ export default async function Page({
     ori?: string;
     gen?: string;
     ord?: string;
+    novos?: string;
   }>;
 }) {
   const sp = await searchParams;
@@ -34,6 +39,10 @@ export default async function Page({
 
   const pagina = Math.max(1, parseInt(sp?.page ?? "1", 10) || 1);
   const offset = (pagina - 1) * PAGE_SIZE;
+  const periodoNovos: PeriodoNovos =
+    PERIODOS_VALIDOS.includes(sp?.novos as PeriodoNovos)
+      ? (sp!.novos as PeriodoNovos)
+      : "30d";
 
   const filtros = {
     busca: sp?.q,
@@ -43,19 +52,17 @@ export default async function Page({
     ordenacao: (sp?.ord as OrdenacaoFiltro) || "ltv_desc",
   };
 
-  // Listagem com filtros aplicados + base total sem filtro (pro contador "X de Y")
-  const [kpis, rfm, top, crescimento, listagem, baseTotal] = await Promise.all([
+  const [
+    kpis, rfm, top, crescimento, listagem, baseTotal, generoDist, novosResumo,
+  ] = await Promise.all([
     getClientesKpis(unidade.id),
     getSegmentacaoRFM(unidade.id),
     getTopClientes(unidade.id, 10),
     getCrescimentoSemanal(unidade.id, 12),
-    listarClientes(unidade.id, {
-      ...filtros,
-      limit: PAGE_SIZE,
-      offset,
-    }),
-    // Base total sem filtros — usado pra contagem comparativa
+    listarClientes(unidade.id, { ...filtros, limit: PAGE_SIZE, offset }),
     listarClientes(unidade.id, { limit: 1, offset: 0 }),
+    getDistribuicaoGenero(unidade.id),
+    getNovosClientes(unidade.id, periodoNovos, 200),
   ]);
 
   return (
@@ -73,6 +80,8 @@ export default async function Page({
         pagina={pagina}
         pageSize={PAGE_SIZE}
         filtrosAtivos={filtros}
+        generoDist={generoDist}
+        novosResumo={novosResumo}
       />
     </AppShell>
   );

@@ -21,10 +21,13 @@ import { tooltipFormatter } from "@/lib/recharts-helpers";
 import type {
   ClientesKpis, SegmentoRFM, TopCliente, CrescimentoSemanal, ClienteRow,
   AtividadeFiltro, OrigemFiltro, GeneroFiltro, OrdenacaoFiltro,
+  GeneroSlice, NovosResumo,
 } from "@/lib/clientes-queries";
 import { ImportarClientesDialog } from "@/components/clientes/importar-clientes-dialog";
 import { ClientesFiltros } from "@/components/clientes/clientes-filtros";
 import { ClientesPaginacao } from "@/components/clientes/clientes-paginacao";
+import { DistribuicaoGenero } from "@/components/clientes/distribuicao-genero";
+import { NovosClientes } from "@/components/clientes/novos-clientes";
 
 // Curva de retenção sintética (futuro: cohort real)
 const RETENCAO_PLACEHOLDER = [
@@ -58,6 +61,8 @@ export function ClientesView({
   pagina,
   pageSize,
   filtrosAtivos,
+  generoDist,
+  novosResumo,
 }: {
   unidadeId: string;
   unidadeNome: string;
@@ -71,6 +76,8 @@ export function ClientesView({
   pagina: number;
   pageSize: number;
   filtrosAtivos: FiltrosAtivos;
+  generoDist: GeneroSlice[];
+  novosResumo: NovosResumo;
 }) {
   const [importOpen, setImportOpen] = React.useState(false);
   const baseVazia = totalClientes === 0;
@@ -142,6 +149,16 @@ export function ClientesView({
             tone="danger"
             icon={TrendingDown}
           />
+        </div>
+      )}
+
+      {/* Gênero + Novos clientes (com filtro por período) */}
+      {!baseVazia && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <DistribuicaoGenero slices={generoDist} />
+          <div className="xl:col-span-2">
+            <NovosClientes resumo={novosResumo} />
+          </div>
         </div>
       )}
 

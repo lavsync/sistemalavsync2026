@@ -375,6 +375,159 @@ export async function getTopClientes(
   });
 }
 
+export type GeneroSlice = {
+  key: "Masculino" | "Feminino" | "Outro" | "Nao informado";
+  label: string;
+  count: number;
+  percent: number;
+  color: string;
+};
+
+const GENERO_CORES: Record<GeneroSlice["key"], string> = {
+  Masculino: "var(--brand-cyan)",
+  Feminino: "var(--brand-purple)",
+  Outro: "var(--brand-blue)",
+  "Nao informado": "var(--muted-foreground)",
+};
+
+export async function getDistribuicaoGenero(unidadeId: string): Promise<GeneroSlice[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("genero")
+    .eq("unidade_id", unidadeId);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw error;
+  }
+
+  const counts: Record<GeneroSlice["key"], number> = {
+    Masculino: 0, Feminino: 0, Outro: 0, "Nao informado": 0,
+  };
+  for (const r of (data ?? []) as Array<{ genero: string | null }>) {
+    const g = (r.genero ?? "").trim();
+    if (g === "Masculino" || g === "Feminino" || g === "Outro") counts[g] += 1;
+    else counts["Nao informado"] += 1;
+  }
+  const total = Object.values(counts).reduce((s, n) => s + n, 0);
+  if (total === 0) return [];
+
+  return (Object.keys(counts) as Array<GeneroSlice["key"]>)
+    .filter((k) => counts[k] > 0)
+    .map((k) => ({
+      key: k,
+      label: k === "Nao informado" ? "Não informado" : k,
+      count: counts[k],
+      percent: Math.round((counts[k] / total) * 1000) / 10, // 1 casa
+      color: GENERO_CORES[k],
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
+// ─── Novos clientes por período ─────────────────────────────────────────────
+export type PeriodoNovos = "hoje" | "7d" | "30d" | "180d" | "1y";
+
+export type NovoCliente = {
+  id: string;
+  nome: string;
+  cpf: string;
+  telefone: string | null;
+  email: string | null;
+  genero: string | null;
+  cadastrado_em: string;
+  ultima_compra_em: string | null;
+  compras_total_qtd: number;
+  compras_total_valor: number;
+  origem_sistema: string;
+};
+
+export type NovosResumo = {
+  periodo: PeriodoNovos;
+  totalAtual: number;
+  totalAnterior: number;
+  variacaoPercent: number;
+  inicioPeriodo: string;
+  fimPeriodo: string;
+  clientes: NovoCliente[];
+};
+
+const PERIODO_DIAS: Record<PeriodoNovos, number> = {
+  hoje: 1, "7d": 7, "30d": 30, "180d": 180, "1y": 365,
+};
+
+function inicioDeHoje(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export async function getNovosClientes(
+  unidadeId: string,
+  periodo: PeriodoNovos,
+  limit: number = 200,
+): Promise<NovosResumo> {
+  const supabase = await createClient();
+  const dia = 24 * 60 * 60 * 1000;
+  const dias = PERIODO_DIAS[periodo];
+
+  // Janela atual: [inicio, agora]
+  const fim = new Date();
+  const inicio = periodo === "hoje"
+    ? inicioDeHoje()
+    : new Date(fim.getTime() - dias * dia);
+  // Janela anterior (mesmo tamanho, imediatamente antes)
+  const inicioAnterior = new Date(inicio.getTime() - dias * dia);
+
+  const [{ data: atuais, error: e1, count: countAtual }, { count: countAnterior, error: e2 }] = await Promise.all([
+    supabase
+      .from("clientes")
+      .select(
+        "id, nome, cpf, telefone, email, genero, cadastrado_em, ultima_compra_em, compras_total_qtd, compras_total_valor, origem_sistema",
+        { count: "exact" },
+      )
+      .eq("unidade_id", unidadeId)
+      .gte("cadastrado_em", inicio.toISOString())
+      .lte("cadastrado_em", fim.toISOString())
+      .order("cadastrado_em", { ascending: false })
+      .limit(limit),
+    supabase
+      .from("clientes")
+      .select("id", { count: "exact", head: true })
+      .eq("unidade_id", unidadeId)
+      .gte("cadastrado_em", inicioAnterior.toISOString())
+      .lt("cadastrado_em", inicio.toISOString()),
+  ]);
+
+  if (e1) {
+    if (isMissingTable(e1)) {
+      return {
+        periodo, totalAtual: 0, totalAnterior: 0, variacaoPercent: 0,
+        inicioPeriodo: inicio.toISOString(), fimPeriodo: fim.toISOString(),
+        clientes: [],
+      };
+    }
+    throw e1;
+  }
+  if (e2 && !isMissingTable(e2)) throw e2;
+
+  const totalAtual = countAtual ?? (atuais?.length ?? 0);
+  const totalAnterior = countAnterior ?? 0;
+  const variacaoPercent =
+    totalAnterior > 0
+      ? Math.round(((totalAtual - totalAnterior) / totalAnterior) * 1000) / 10
+      : totalAtual > 0 ? 100 : 0;
+
+  return {
+    periodo,
+    totalAtual,
+    totalAnterior,
+    variacaoPercent,
+    inicioPeriodo: inicio.toISOString(),
+    fimPeriodo: fim.toISOString(),
+    clientes: (atuais ?? []) as NovoCliente[],
+  };
+}
+
 export type CrescimentoSemanal = { semana: string; novos: number; recorrentes: number };
 
 export async function getCrescimentoSemanal(
