@@ -1,28 +1,21 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { ModulePlaceholder } from "@/components/views/module-placeholder";
+import { CadastrosHubView } from "@/components/cadastros/hub-view";
+import { getContadoresCadastros } from "@/lib/cadastros-queries";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export const metadata = {
+  title: "Cadastros · LavSync",
+  description: "Hub de configurações da unidade — 11 blocos pra alimentar o sistema.",
+};
+
+export default async function Page() {
+  const contadores = await getContadoresCadastros();
   return (
     <AppShell>
-      <ModulePlaceholder
-        eyebrow="Cadastros"
-        title="Cadastros estruturais do sistema"
-        subtitle="Clientes, fornecedores, despesas, categorias, máquinas, planos, serviços, campanhas, parceiros e usuários."
-        iconName="clipboard-list"
-        components={[
-          "Clientes",
-          "Fornecedores",
-          "Despesas",
-          "Categorias financeiras",
-          "Máquinas",
-          "Planos",
-          "Serviços",
-          "Campanhas",
-          "Parceiros",
-          "Unidade",
-          "Usuário/franqueado",
-        ]}
-      />
+      <div className="px-6 lg:px-8 py-6">
+        <CadastrosHubView contadores={contadores} />
+      </div>
     </AppShell>
   );
 }

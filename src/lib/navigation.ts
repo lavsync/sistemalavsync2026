@@ -13,7 +13,7 @@ export type NavItem = {
 export const NAVIGATION: NavItem[] = [
   // CORE
   { label: "Visão Geral", href: "/", group: "core" },
-  { label: "Unidades", href: "/cadastros", group: "core" },
+  { label: "Cadastros", href: "/cadastros", group: "core" },
   { label: "Máquinas", href: "/manutencao", group: "core", badge: "3" },
 
   // OPERACIONAL
