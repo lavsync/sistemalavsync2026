@@ -17,12 +17,32 @@ export type Unidade = {
 
 export async function listarUnidades(): Promise<Unidade[]> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Master e admin veem todas; demais respeitam unidades_permitidas
+  const { data: usrApp } = user
+    ? await supabase
+        .from("usuarios")
+        .select("papel, unidades_permitidas")
+        .eq("id", user.id)
+        .maybeSingle()
+    : { data: null };
+
   const { data, error } = await supabase
     .from("unidades")
     .select("id, nome, tenant_id")
     .order("nome");
   if (error) throw error;
-  return (data ?? []) as Unidade[];
+  let unidades = (data ?? []) as Unidade[];
+
+  const papel = (usrApp as { papel?: string } | null)?.papel;
+  const permitidas = (usrApp as { unidades_permitidas?: string[] | null } | null)?.unidades_permitidas;
+
+  if (papel && papel !== "master" && papel !== "admin" && permitidas && permitidas.length > 0) {
+    const allow = new Set(permitidas);
+    unidades = unidades.filter((u) => allow.has(u.id));
+  }
+  return unidades;
 }
 
 export async function getUnidadeAtiva(): Promise<Unidade> {

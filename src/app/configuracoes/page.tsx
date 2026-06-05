@@ -1,26 +1,26 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { ModulePlaceholder } from "@/components/views/module-placeholder";
+import { UsuariosView } from "@/components/configuracoes/usuarios-view";
+import { listarUsuarios, getUsuarioAtual } from "@/lib/usuarios-queries";
+import { listarUnidades } from "@/lib/unidade-ativa";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const [usuarios, unidades, atual] = await Promise.all([
+    listarUsuarios(),
+    listarUnidades(),
+    getUsuarioAtual(),
+  ]);
+
   return (
     <AppShell>
-      <ModulePlaceholder
-        eyebrow="Configurações"
-        title="Preferências da unidade e do sistema"
-        subtitle="Identidade da marca, tema, notificações, fuso horário, integrações default, política de dados e permissões."
-        iconName="settings"
-        components={[
-          "Identidade da unidade (logo, cores, slogan)",
-          "Tema (claro/escuro/auto)",
-          "Notificações (e-mail, push, WhatsApp)",
-          "Fuso horário e moeda",
-          "Política de retenção de dados",
-          "Permissões e papéis (RBAC)",
-          "API keys e webhooks",
-          "Backups e exportações",
-          "Auditoria de acessos",
-        ]}
-      />
+      <div className="px-6 lg:px-8 py-6">
+        <UsuariosView
+          usuarios={usuarios}
+          unidades={unidades.map((u) => ({ id: u.id, nome: u.nome }))}
+          usuarioAtualId={atual?.id ?? null}
+        />
+      </div>
     </AppShell>
   );
 }

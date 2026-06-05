@@ -17,6 +17,7 @@ export const NAVIGATION: NavItem[] = [
   { label: "Máquinas", href: "/manutencao", group: "core", badge: "3" },
 
   // OPERACIONAL
+  { label: "Painel ao Vivo", href: "/painel-ao-vivo", group: "operacional", badge: "LIVE", accent: true },
   { label: "Financeiro", href: "/resultados", group: "operacional" },
   { label: "Clientes", href: "/clientes", group: "operacional" },
   { label: "Marketing", href: "/publicidade", group: "operacional" },
