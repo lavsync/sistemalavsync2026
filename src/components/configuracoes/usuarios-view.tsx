@@ -8,7 +8,7 @@ import {
   Users, UserPlus, Search, MoreVertical, Shield, ShieldCheck, ShieldX,
   KeyRound, Power, Trash2, Copy, Check, X, Building2, Loader2,
   AlertTriangle, Crown, Eye, UserCog, Phone, Mail, Calendar,
-  Sparkles, ChevronRight, RefreshCw,
+  Sparkles, ChevronRight, RefreshCw, EyeOff, Wand2, Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ export function UsuariosView({
   const [busca, setBusca] = React.useState("");
   const [novoOpen, setNovoOpen] = React.useState(false);
   const [editando, setEditando] = React.useState<UsuarioRow | null>(null);
-  const [senhaResetada, setSenhaResetada] = React.useState<{ usuario: string; senha: string } | null>(null);
+  const [resetando, setResetando] = React.useState<UsuarioRow | null>(null);
 
   const filtrados = React.useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -97,7 +97,7 @@ export function UsuariosView({
             unidades={unidades}
             isSelf={u.id === usuarioAtualId}
             onEditar={() => setEditando(u)}
-            onSenhaResetada={(s) => setSenhaResetada({ usuario: u.nome, senha: s })}
+            onResetar={() => setResetando(u)}
           />
         ))}
       </div>
@@ -125,10 +125,10 @@ export function UsuariosView({
         unidades={unidades}
       />
 
-      {/* Dialog: Senha resetada */}
-      <SenhaResetadaDialog
-        info={senhaResetada}
-        onClose={() => setSenhaResetada(null)}
+      {/* Dialog: Resetar senha */}
+      <ResetarSenhaDialog
+        usuario={resetando}
+        onClose={() => setResetando(null)}
       />
     </div>
   );
@@ -138,28 +138,19 @@ export function UsuariosView({
 // CARD do usuário
 // ────────────────────────────────────────────────────────────
 function UsuarioCard({
-  usuario, unidades, isSelf, onEditar, onSenhaResetada,
+  usuario, unidades, isSelf, onEditar, onResetar,
 }: {
   usuario: UsuarioRow;
   unidades: Unidade[];
   isSelf: boolean;
   onEditar: () => void;
-  onSenhaResetada: (senha: string) => void;
+  onResetar: () => void;
 }) {
   const PapelIcon = PAPEL_META[usuario.papel].icon;
   const [busy, setBusy] = React.useState(false);
 
-  async function handleReset() {
-    if (!confirm(`Resetar a senha de ${usuario.nome}? Será gerada uma nova senha temporária.`)) return;
-    setBusy(true);
-    try {
-      const r = await resetarSenha(usuario.id);
-      onSenhaResetada(r.senhaTemporaria);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Erro ao resetar");
-    } finally {
-      setBusy(false);
-    }
+  function handleReset() {
+    onResetar();
   }
 
   async function handleToggle() {
@@ -320,6 +311,9 @@ function NovoUsuarioDialog({
   const [papel, setPapel] = React.useState<Papel>("operador");
   const [unidadesPermitidas, setUnidadesPermitidas] = React.useState<string[]>([]);
   const [observacoes, setObservacoes] = React.useState("");
+  const [modoSenha, setModoSenha] = React.useState<"gerar" | "manual">("gerar");
+  const [senhaManual, setSenhaManual] = React.useState("");
+  const [mostrarSenha, setMostrarSenha] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [erro, setErro] = React.useState<string | null>(null);
   const [resultado, setResultado] = React.useState<CriarUsuarioResult | null>(null);
@@ -328,7 +322,9 @@ function NovoUsuarioDialog({
   function reset() {
     setStep(1); setNome(""); setEmail(""); setTelefone("");
     setPapel("operador"); setUnidadesPermitidas([]);
-    setObservacoes(""); setBusy(false); setErro(null); setResultado(null); setCopiou(false);
+    setObservacoes(""); setModoSenha("gerar"); setSenhaManual("");
+    setMostrarSenha(false); setBusy(false); setErro(null);
+    setResultado(null); setCopiou(false);
   }
 
   React.useEffect(() => { if (!open) reset(); }, [open]);
@@ -340,6 +336,7 @@ function NovoUsuarioDialog({
         nome, email, telefone, papel,
         unidades_permitidas: papel === "master" || papel === "admin" ? null : unidadesPermitidas,
         observacoes,
+        senhaPersonalizada: modoSenha === "manual" ? senhaManual : null,
       });
       if (!r.ok) { setErro(r.motivo); setBusy(false); return; }
       setResultado(r);
@@ -360,8 +357,9 @@ function NovoUsuarioDialog({
   }
 
   const valido1 = nome.trim().length >= 2 && /^[^@]+@[^@]+\.[^@]+$/.test(email);
+  const senhaValida = modoSenha === "gerar" || senhaManual.trim().length >= 8;
   const valido2 =
-    papel === "master" || papel === "admin" || unidadesPermitidas.length > 0;
+    (papel === "master" || papel === "admin" || unidadesPermitidas.length > 0) && senhaValida;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -485,10 +483,75 @@ function NovoUsuarioDialog({
                         <Field label="Observações (opcional)">
                           <textarea rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Notas internas sobre este usuário" className="form-input resize-none" />
                         </Field>
+
+                        {/* Modo de senha */}
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">
+                            Senha de acesso *
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mb-3">
+                            <button
+                              onClick={() => setModoSenha("gerar")}
+                              className={cn(
+                                "rounded-lg border p-2.5 text-left transition-smooth flex items-start gap-2",
+                                modoSenha === "gerar"
+                                  ? "border-brand-cyan bg-brand-cyan/5"
+                                  : "border-border hover:border-border-strong bg-card",
+                              )}
+                            >
+                              <Wand2 className={cn("w-4 h-4 mt-0.5 shrink-0", modoSenha === "gerar" ? "text-brand-cyan" : "text-muted-foreground")} />
+                              <div className="min-w-0">
+                                <div className="font-semibold text-[12px]">Gerar automaticamente</div>
+                                <div className="text-[10px] text-muted-foreground">Forte · 14 caracteres</div>
+                              </div>
+                            </button>
+                            <button
+                              onClick={() => setModoSenha("manual")}
+                              className={cn(
+                                "rounded-lg border p-2.5 text-left transition-smooth flex items-start gap-2",
+                                modoSenha === "manual"
+                                  ? "border-brand-cyan bg-brand-cyan/5"
+                                  : "border-border hover:border-border-strong bg-card",
+                              )}
+                            >
+                              <Lock className={cn("w-4 h-4 mt-0.5 shrink-0", modoSenha === "manual" ? "text-brand-cyan" : "text-muted-foreground")} />
+                              <div className="min-w-0">
+                                <div className="font-semibold text-[12px]">Definir senha</div>
+                                <div className="text-[10px] text-muted-foreground">Mínimo 8 caracteres</div>
+                              </div>
+                            </button>
+                          </div>
+
+                          {modoSenha === "manual" && (
+                            <div className="relative">
+                              <input
+                                type={mostrarSenha ? "text" : "password"}
+                                value={senhaManual}
+                                onChange={(e) => setSenhaManual(e.target.value)}
+                                placeholder="Digite a senha (mín. 8 caracteres)"
+                                className="form-input pr-10 font-mono"
+                                autoComplete="new-password"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setMostrarSenha((v) => !v)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground"
+                                aria-label={mostrarSenha ? "Ocultar" : "Mostrar"}
+                              >
+                                {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </button>
+                              {senhaManual && senhaManual.length < 8 && (
+                                <div className="text-[10px] text-danger mt-1">
+                                  Faltam {8 - senhaManual.length} caractere{8 - senhaManual.length === 1 ? "" : "s"}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
-                    {/* STEP 3 — Senha gerada */}
+                    {/* STEP 3 — Sucesso + credenciais */}
                     {step === 3 && resultado && resultado.ok && (
                       <div className="p-5 space-y-4">
                         <div className="rounded-xl border border-success/30 bg-success/8 p-4 flex items-start gap-3">
@@ -496,7 +559,9 @@ function NovoUsuarioDialog({
                           <div>
                             <div className="font-display font-bold text-success">Usuário criado!</div>
                             <div className="text-[12px] text-success/80 mt-0.5">
-                              Anote ou envie a senha temporária agora — ela <strong>não será mostrada de novo</strong>.
+                              {resultado.senhaFoiGerada
+                                ? <>Anote ou envie a senha agora — ela <strong>não será mostrada de novo</strong>.</>
+                                : "Senha definida por você. Compartilhe com o usuário pelo canal seguro."}
                             </div>
                           </div>
                         </div>
@@ -507,8 +572,10 @@ function NovoUsuarioDialog({
                             <div className="font-mono text-[14px] font-semibold">{email}</div>
                           </div>
                           <div>
-                            <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Senha temporária</div>
-                            <div className="font-mono text-[18px] font-bold text-brand-cyan tracking-wider select-all">
+                            <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
+                              {resultado.senhaFoiGerada ? "Senha gerada" : "Senha definida"}
+                            </div>
+                            <div className="font-mono text-[18px] font-bold text-brand-cyan tracking-wider select-all break-all">
                               {resultado.senhaTemporaria}
                             </div>
                           </div>
@@ -522,7 +589,9 @@ function NovoUsuarioDialog({
 
                         <div className="rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[11px] text-warning flex gap-2">
                           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                          O usuário deve trocar a senha no primeiro login (recomendado).
+                          {resultado.senhaFoiGerada
+                            ? "Recomende ao usuário trocar a senha no primeiro login."
+                            : "Compartilhe pelo canal seguro (WhatsApp, em pessoa). Considere reset depois do primeiro acesso."}
                         </div>
                       </div>
                     )}
@@ -705,24 +774,60 @@ function EditarUsuarioDialog({
 }
 
 // ────────────────────────────────────────────────────────────
-// DIALOG: Senha resetada
+// DIALOG: Resetar senha (escolhe modo, executa, mostra resultado)
 // ────────────────────────────────────────────────────────────
-function SenhaResetadaDialog({
-  info, onClose,
+function ResetarSenhaDialog({
+  usuario, onClose,
 }: {
-  info: { usuario: string; senha: string } | null;
+  usuario: UsuarioRow | null;
   onClose: () => void;
 }) {
+  const [modo, setModo] = React.useState<"gerar" | "manual">("gerar");
+  const [senhaManual, setSenhaManual] = React.useState("");
+  const [mostrarSenha, setMostrarSenha] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [erro, setErro] = React.useState<string | null>(null);
+  const [resultado, setResultado] = React.useState<{ senha: string; gerada: boolean } | null>(null);
   const [copiou, setCopiou] = React.useState(false);
-  React.useEffect(() => setCopiou(false), [info]);
 
-  if (!info) return null;
+  React.useEffect(() => {
+    if (usuario) {
+      setModo("gerar"); setSenhaManual(""); setMostrarSenha(false);
+      setBusy(false); setErro(null); setResultado(null); setCopiou(false);
+    }
+  }, [usuario]);
+
+  if (!usuario) return null;
+
+  async function handleReset() {
+    setBusy(true); setErro(null);
+    try {
+      const r = await resetarSenha({
+        id: usuario!.id,
+        senhaPersonalizada: modo === "manual" ? senhaManual : null,
+      });
+      setResultado({ senha: r.senhaTemporaria, gerada: r.senhaFoiGerada });
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function copiar() {
+    if (!resultado) return;
+    navigator.clipboard.writeText(`E-mail: ${usuario?.email}\nSenha: ${resultado.senha}`);
+    setCopiou(true);
+    setTimeout(() => setCopiou(false), 2000);
+  }
+
+  const senhaValida = modo === "gerar" || senhaManual.trim().length >= 8;
 
   return (
-    <Dialog.Root open={!!info} onOpenChange={(o) => !o && onClose()}>
+    <Dialog.Root open={!!usuario} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <AnimatePresence>
-          {info && (
+          {usuario && (
             <>
               <Dialog.Overlay asChild forceMount>
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" />
@@ -731,32 +836,122 @@ function SenhaResetadaDialog({
                 <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
                   className="fixed inset-0 z-50 grid place-items-center p-4">
                   <div className="w-full max-w-md rounded-2xl bg-card border border-border shadow-2xl overflow-hidden">
-                    <div className="p-5 border-b border-border/60">
-                      <Dialog.Title className="font-display text-lg font-bold flex items-center gap-2">
-                        <RefreshCw className="w-4 h-4 text-brand-cyan" /> Senha resetada
-                      </Dialog.Title>
-                      <Dialog.Description className="text-[12px] text-muted-foreground mt-1">
-                        Nova senha para {info.usuario}
-                      </Dialog.Description>
-                    </div>
-                    <div className="p-5 space-y-3">
-                      <div className="rounded-xl border-2 border-brand-cyan/30 bg-brand-cyan/5 p-4">
-                        <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">Nova senha temporária</div>
-                        <div className="font-mono text-[18px] font-bold text-brand-cyan tracking-wider select-all">{info.senha}</div>
+                    <div className="p-5 border-b border-border/60 flex items-start justify-between">
+                      <div>
+                        <Dialog.Title className="font-display text-lg font-bold flex items-center gap-2">
+                          <KeyRound className="w-4 h-4 text-brand-cyan" /> Resetar senha
+                        </Dialog.Title>
+                        <Dialog.Description className="text-[12px] text-muted-foreground mt-1">
+                          Nova senha para <strong>{usuario.nome}</strong> ({usuario.email})
+                        </Dialog.Description>
                       </div>
-                      <button
-                        onClick={() => { navigator.clipboard.writeText(info.senha); setCopiou(true); setTimeout(() => setCopiou(false), 2000); }}
-                        className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-brand-cyan text-primary-foreground font-semibold text-[12px] hover:bg-brand-cyan/90"
-                      >
-                        {copiou ? <><Check className="w-4 h-4" /> Copiado!</> : <><Copy className="w-4 h-4" /> Copiar senha</>}
-                      </button>
-                      <div className="rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[11px] text-warning flex gap-2">
-                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                        Envie esta senha pro usuário pelo canal seguro. Esta tela não pode ser reaberta.
-                      </div>
+                      <Dialog.Close asChild>
+                        <button className="w-8 h-8 rounded-md hover:bg-secondary flex items-center justify-center"><X className="w-4 h-4" /></button>
+                      </Dialog.Close>
                     </div>
-                    <div className="px-5 py-3 border-t border-border/60 bg-muted/30 flex justify-end">
-                      <Button onClick={onClose} className="bg-brand-cyan text-primary-foreground">Concluir</Button>
+
+                    {!resultado ? (
+                      <div className="p-5 space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setModo("gerar")}
+                            className={cn(
+                              "rounded-lg border p-2.5 text-left transition-smooth flex items-start gap-2",
+                              modo === "gerar"
+                                ? "border-brand-cyan bg-brand-cyan/5"
+                                : "border-border hover:border-border-strong bg-card",
+                            )}
+                          >
+                            <Wand2 className={cn("w-4 h-4 mt-0.5 shrink-0", modo === "gerar" ? "text-brand-cyan" : "text-muted-foreground")} />
+                            <div>
+                              <div className="font-semibold text-[12px]">Gerar nova</div>
+                              <div className="text-[10px] text-muted-foreground">Forte · 14 chars</div>
+                            </div>
+                          </button>
+                          <button
+                            onClick={() => setModo("manual")}
+                            className={cn(
+                              "rounded-lg border p-2.5 text-left transition-smooth flex items-start gap-2",
+                              modo === "manual"
+                                ? "border-brand-cyan bg-brand-cyan/5"
+                                : "border-border hover:border-border-strong bg-card",
+                            )}
+                          >
+                            <Lock className={cn("w-4 h-4 mt-0.5 shrink-0", modo === "manual" ? "text-brand-cyan" : "text-muted-foreground")} />
+                            <div>
+                              <div className="font-semibold text-[12px]">Definir manual</div>
+                              <div className="text-[10px] text-muted-foreground">Mín. 8 chars</div>
+                            </div>
+                          </button>
+                        </div>
+
+                        {modo === "manual" && (
+                          <div className="relative">
+                            <input
+                              type={mostrarSenha ? "text" : "password"}
+                              value={senhaManual}
+                              onChange={(e) => setSenhaManual(e.target.value)}
+                              placeholder="Nova senha (mín. 8 caracteres)"
+                              className="form-input pr-10 font-mono"
+                              autoComplete="new-password"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setMostrarSenha((v) => !v)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground"
+                            >
+                              {mostrarSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        )}
+
+                        {erro && (
+                          <div className="rounded-lg border border-danger/30 bg-danger/8 px-3 py-2 text-[12px] text-danger">{erro}</div>
+                        )}
+
+                        <div className="rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[11px] text-warning flex gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                          A senha atual será <strong>invalidada imediatamente</strong>. O usuário precisará usar a nova.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-5 space-y-3">
+                        <div className="rounded-xl border border-success/30 bg-success/8 p-3 flex items-start gap-2">
+                          <Check className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                          <div className="text-[12px] text-success font-semibold">Senha resetada com sucesso</div>
+                        </div>
+                        <div className="rounded-xl border-2 border-brand-cyan/30 bg-brand-cyan/5 p-4">
+                          <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
+                            {resultado.gerada ? "Nova senha gerada" : "Nova senha"}
+                          </div>
+                          <div className="font-mono text-[18px] font-bold text-brand-cyan tracking-wider select-all break-all">{resultado.senha}</div>
+                        </div>
+                        <button
+                          onClick={copiar}
+                          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-brand-cyan text-primary-foreground font-semibold text-[12px] hover:bg-brand-cyan/90"
+                        >
+                          {copiou ? <><Check className="w-4 h-4" /> Copiado!</> : <><Copy className="w-4 h-4" /> Copiar e-mail + senha</>}
+                        </button>
+                        <div className="rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[11px] text-warning flex gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                          Envie pelo canal seguro. Esta tela não pode ser reaberta.
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="px-5 py-3 border-t border-border/60 bg-muted/30 flex items-center justify-end gap-2">
+                      {!resultado ? (
+                        <>
+                          <Dialog.Close asChild><Button variant="ghost" disabled={busy}>Cancelar</Button></Dialog.Close>
+                          <Button onClick={handleReset} disabled={busy || !senhaValida} className="bg-gradient-to-r from-brand-cyan to-brand-blue text-white">
+                            {busy && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                            <KeyRound className="w-4 h-4 mr-1" /> Resetar senha
+                          </Button>
+                        </>
+                      ) : (
+                        <Button onClick={onClose} className="bg-success text-white">Concluir</Button>
+                      )}
                     </div>
                   </div>
                 </motion.div>

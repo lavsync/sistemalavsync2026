@@ -54,36 +54,56 @@ export type CriarUsuarioInput = {
   telefone?: string | null;
   unidades_permitidas?: string[] | null;
   observacoes?: string | null;
+  /** Se fornecida, usa essa senha. Senão gera automaticamente. */
+  senhaPersonalizada?: string | null;
 };
 
 export type CriarUsuarioResult = {
   ok: true;
   usuarioId: string;
   senhaTemporaria: string;
+  senhaFoiGerada: boolean;
 } | {
   ok: false;
   motivo: string;
 };
+
+const MIN_PASSWORD = 8;
 
 export async function criarUsuario(input: CriarUsuarioInput): Promise<CriarUsuarioResult> {
   if (!(await podeGerenciarUsuarios())) {
     return { ok: false, motivo: "Sem permissão. Apenas master/admin podem criar usuários." };
   }
 
+  // service_role bypassa RLS — necessário pra inserir em usuarios + criar no Auth
   const sb = admin();
   const supabase = await createServerClient();
 
   // 1. Pegar tenant_id (assumindo tenant único Xô Varal por enquanto)
-  const { data: tenant } = await supabase.from("tenants").select("id").limit(1).maybeSingle();
+  const { data: tenant, error: errTenant } = await sb
+    .from("tenants").select("id").limit(1).maybeSingle();
+  if (errTenant) return { ok: false, motivo: `Falha ao buscar tenant: ${errTenant.message}` };
   if (!tenant) return { ok: false, motivo: "Tenant não encontrado" };
 
-  // 2. Gerar senha forte
-  const senhaTemporaria = gerarSenhaForte(14);
+  // 2. Senha: personalizada (validada) ou gerada
+  let senha: string;
+  let senhaFoiGerada: boolean;
+  if (input.senhaPersonalizada && input.senhaPersonalizada.trim().length > 0) {
+    const p = input.senhaPersonalizada.trim();
+    if (p.length < MIN_PASSWORD) {
+      return { ok: false, motivo: `Senha precisa ter pelo menos ${MIN_PASSWORD} caracteres.` };
+    }
+    senha = p;
+    senhaFoiGerada = false;
+  } else {
+    senha = gerarSenhaForte(14);
+    senhaFoiGerada = true;
+  }
 
   // 3. Criar no Auth (já confirmado)
   const { data: authData, error: errAuth } = await sb.auth.admin.createUser({
     email: input.email.trim().toLowerCase(),
-    password: senhaTemporaria,
+    password: senha,
     email_confirm: true,
     user_metadata: { full_name: input.nome.trim(), role: input.papel },
   });
@@ -91,8 +111,8 @@ export async function criarUsuario(input: CriarUsuarioInput): Promise<CriarUsuar
     return { ok: false, motivo: errAuth?.message ?? "Falha ao criar usuário no Auth" };
   }
 
-  // 4. Criar na tabela usuarios (id = auth.uid)
-  const { error: errIns } = await supabase.from("usuarios").insert({
+  // 4. Inserir na tabela usuarios usando service_role (bypassa RLS)
+  const { error: errIns } = await sb.from("usuarios").insert({
     id: authData.user.id,
     tenant_id: (tenant as { id: string }).id,
     nome: input.nome.trim(),
@@ -112,8 +132,9 @@ export async function criarUsuario(input: CriarUsuarioInput): Promise<CriarUsuar
     return { ok: false, motivo: `Falha ao inserir em usuarios: ${errIns.message}` };
   }
 
+  void supabase; // mantido pra checagem de permissão
   revalidatePath("/configuracoes");
-  return { ok: true, usuarioId: authData.user.id, senhaTemporaria };
+  return { ok: true, usuarioId: authData.user.id, senhaTemporaria: senha, senhaFoiGerada };
 }
 
 export type AtualizarUsuarioInput = {
@@ -129,7 +150,8 @@ export async function atualizarUsuario(input: AtualizarUsuarioInput) {
   if (!(await podeGerenciarUsuarios())) {
     throw new Error("Sem permissão");
   }
-  const supabase = await createServerClient();
+  // service_role bypassa RLS pra updates administrativos
+  const sb = admin();
   const patch: Record<string, unknown> = {};
   if (input.nome !== undefined) patch.nome = input.nome.trim();
   if (input.papel !== undefined) {
@@ -143,12 +165,11 @@ export async function atualizarUsuario(input: AtualizarUsuarioInput) {
   if (input.unidades_permitidas !== undefined) patch.unidades_permitidas = input.unidades_permitidas;
   if (input.observacoes !== undefined) patch.observacoes = input.observacoes;
 
-  const { error } = await supabase.from("usuarios").update(patch).eq("id", input.id);
+  const { error } = await sb.from("usuarios").update(patch).eq("id", input.id);
   if (error) throw error;
 
   // Atualizar metadata no Auth se mudou nome ou papel
   if (input.nome !== undefined || input.papel !== undefined) {
-    const sb = admin();
     await sb.auth.admin.updateUserById(input.id, {
       user_metadata: { full_name: input.nome, role: input.papel },
     });
@@ -159,12 +180,11 @@ export async function atualizarUsuario(input: AtualizarUsuarioInput) {
 
 export async function alternarAtivoUsuario(id: string, ativo: boolean) {
   if (!(await podeGerenciarUsuarios())) throw new Error("Sem permissão");
-  const supabase = await createServerClient();
-  const { error } = await supabase.from("usuarios").update({ ativo }).eq("id", id);
+  const sb = admin();
+  const { error } = await sb.from("usuarios").update({ ativo }).eq("id", id);
   if (error) throw error;
 
   // Desativar no Auth = bloquear login via ban_duration
-  const sb = admin();
   await sb.auth.admin.updateUserById(id, {
     ban_duration: ativo ? "none" : "876000h", // ~100 anos
   });
@@ -172,14 +192,43 @@ export async function alternarAtivoUsuario(id: string, ativo: boolean) {
   revalidatePath("/configuracoes");
 }
 
-export async function resetarSenha(id: string): Promise<{ senhaTemporaria: string }> {
+export type ResetSenhaInput = {
+  id: string;
+  /** Se fornecida, usa essa. Senão gera aleatória. */
+  senhaPersonalizada?: string | null;
+};
+
+export type ResetSenhaResult = {
+  senhaTemporaria: string;
+  senhaFoiGerada: boolean;
+};
+
+export async function resetarSenha(input: ResetSenhaInput | string): Promise<ResetSenhaResult> {
   if (!(await podeGerenciarUsuarios())) throw new Error("Sem permissão");
   const sb = admin();
-  const senhaTemporaria = gerarSenhaForte(14);
-  const { error } = await sb.auth.admin.updateUserById(id, { password: senhaTemporaria });
+
+  // Compat: aceita string (id direto) ou input com senha
+  const id = typeof input === "string" ? input : input.id;
+  const personalizada = typeof input === "string" ? null : input.senhaPersonalizada;
+
+  let senha: string;
+  let senhaFoiGerada: boolean;
+  if (personalizada && personalizada.trim().length > 0) {
+    const p = personalizada.trim();
+    if (p.length < MIN_PASSWORD) {
+      throw new Error(`Senha precisa ter pelo menos ${MIN_PASSWORD} caracteres.`);
+    }
+    senha = p;
+    senhaFoiGerada = false;
+  } else {
+    senha = gerarSenhaForte(14);
+    senhaFoiGerada = true;
+  }
+
+  const { error } = await sb.auth.admin.updateUserById(id, { password: senha });
   if (error) throw error;
   revalidatePath("/configuracoes");
-  return { senhaTemporaria };
+  return { senhaTemporaria: senha, senhaFoiGerada };
 }
 
 export async function deletarUsuario(id: string) {
@@ -189,11 +238,9 @@ export async function deletarUsuario(id: string) {
   if (user?.id === id) throw new Error("Você não pode deletar a si mesmo.");
 
   const sb = admin();
-  // Apaga do Auth (cascade vai limpar usuarios via FK auth.users → public.usuarios)
+  // Apaga do Auth + garante delete na tabela app
   const { error: errAuth } = await sb.auth.admin.deleteUser(id);
   if (errAuth) throw errAuth;
-
-  // Garantir delete na tabela app (caso FK não cascade)
-  await supabase.from("usuarios").delete().eq("id", id);
+  await sb.from("usuarios").delete().eq("id", id);
   revalidatePath("/configuracoes");
 }
