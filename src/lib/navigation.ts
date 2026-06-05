@@ -24,7 +24,7 @@ export const NAVIGATION: NavItem[] = [
 
   // INTELIGÊNCIA
   { label: "Analytics", href: "/metricas", group: "inteligencia" },
-  { label: "Relatórios", href: "/performance", group: "inteligencia" },
+  { label: "Performance", href: "/performance", group: "inteligencia" },
   { label: "IA & Insights", href: "/clock", group: "inteligencia", accent: true },
 
   // SISTEMA
