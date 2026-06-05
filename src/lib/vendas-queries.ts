@@ -50,15 +50,23 @@ function mesAnteriorFim(d: Date = new Date()): Date {
   return new Date(d.getFullYear(), d.getMonth(), 0, 23, 59, 59, 999);
 }
 
-export async function getResumoPerformance(unidadeId: string): Promise<ResumoPerformance> {
-  const supabase = await createClient();
-  const hoje = new Date();
-  const iniMes = inicioMes(hoje);
-  const fimMesAtual = fimMes(hoje);
-  const iniMesAnt = mesAnteriorInicio(hoje);
-  const fimMesAnt = mesAnteriorFim(hoje);
+// Helper: parse "YYYY-MM" → Date (dia 15, meio do mês pra evitar fuso)
+export function parseMesRef(mes?: string | null): Date {
+  if (!mes) return new Date();
+  const m = /^(\d{4})-(\d{1,2})$/.exec(mes);
+  if (!m) return new Date();
+  const [, y, mm] = m;
+  return new Date(Number(y), Number(mm) - 1, 15, 12, 0, 0);
+}
 
-  const [vendasMes, vendasMesAnt, clientesAg, novosClientes, ultImp, baseVendas] = await Promise.all([
+export async function getResumoPerformance(unidadeId: string, refMes: Date = new Date()): Promise<ResumoPerformance> {
+  const supabase = await createClient();
+  const iniMes = inicioMes(refMes);
+  const fimMesAtual = fimMes(refMes);
+  const iniMesAnt = mesAnteriorInicio(refMes);
+  const fimMesAnt = mesAnteriorFim(refMes);
+
+  const [vendasMes, vendasMesAnt, clientesAg, novosClientesMesRef, ultImp, baseVendas] = await Promise.all([
     supabase
       .from("vendas")
       .select("valor, tipo_servico, tipo_pagamento, cupom_codigo, voucher_codigo, quantidade_ciclos")
@@ -81,7 +89,8 @@ export async function getResumoPerformance(unidadeId: string): Promise<ResumoPer
       .from("clientes")
       .select("id", { count: "exact", head: true })
       .eq("unidade_id", unidadeId)
-      .gte("cadastrado_em", iniMes.toISOString()),
+      .gte("cadastrado_em", iniMes.toISOString())
+      .lte("cadastrado_em", fimMesAtual.toISOString()),
     supabase
       .from("vendas_importacoes")
       .select("concluido_em")
@@ -150,7 +159,7 @@ export async function getResumoPerformance(unidadeId: string): Promise<ResumoPer
     variacaoFaturamento,
     variacaoCiclos,
     totalClientesBase: clientesAg.count ?? 0,
-    novosClientesMes: novosClientes.count ?? 0,
+    novosClientesMes: novosClientesMesRef.count ?? 0,
     cuponsQtd,
     cuponsValor: round2(cuponsValor),
     vouchersQtd,
@@ -196,7 +205,7 @@ const PAG_COR: Record<string, string> = {
 
 export async function getFaturamentoPorPagamento(
   unidadeId: string,
-  desdeMes: boolean = false,
+  refMes?: Date,
 ): Promise<FaturamentoPagamentoSlice[]> {
   const supabase = await createClient();
   let q = supabase
@@ -204,8 +213,9 @@ export async function getFaturamentoPorPagamento(
     .select("tipo_pagamento, tipo_cartao, valor")
     .eq("unidade_id", unidadeId)
     .eq("situacao", "sucesso");
-  if (desdeMes) {
-    q = q.gte("data_venda", inicioMes().toISOString());
+  if (refMes) {
+    q = q.gte("data_venda", inicioMes(refMes).toISOString())
+         .lte("data_venda", fimMes(refMes).toISOString());
   }
   const { data, error } = await q;
   if (error) {
@@ -240,15 +250,25 @@ export async function getFaturamentoPorPagamento(
 export type DiaSemanaPoint = { dia: string; clientes: number; faturamento: number };
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-export async function getPorDiaSemana(unidadeId: string, dias: number = 30): Promise<DiaSemanaPoint[]> {
+export async function getPorDiaSemana(
+  unidadeId: string,
+  refMes?: Date,
+  diasFallback: number = 30,
+): Promise<DiaSemanaPoint[]> {
   const supabase = await createClient();
-  const desde = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
-  const { data, error } = await supabase
+  let q = supabase
     .from("vendas")
     .select("data_venda, valor, cpf")
     .eq("unidade_id", unidadeId)
-    .eq("situacao", "sucesso")
-    .gte("data_venda", desde.toISOString());
+    .eq("situacao", "sucesso");
+  if (refMes) {
+    q = q.gte("data_venda", inicioMes(refMes).toISOString())
+         .lte("data_venda", fimMes(refMes).toISOString());
+  } else {
+    const desde = new Date(Date.now() - diasFallback * 24 * 60 * 60 * 1000);
+    q = q.gte("data_venda", desde.toISOString());
+  }
+  const { data, error } = await q;
   if (error) {
     if (isMissingTable(error)) return [];
     throw error;
@@ -328,7 +348,7 @@ export type CupomUso = {
   desconto: number;
 };
 
-export async function getCuponsUsados(unidadeId: string, desdeMes: boolean = true): Promise<CupomUso[]> {
+export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise<CupomUso[]> {
   const supabase = await createClient();
   let q = supabase
     .from("vendas")
@@ -336,7 +356,10 @@ export async function getCuponsUsados(unidadeId: string, desdeMes: boolean = tru
     .eq("unidade_id", unidadeId)
     .eq("situacao", "sucesso")
     .not("cupom_codigo", "is", null);
-  if (desdeMes) q = q.gte("data_venda", inicioMes().toISOString());
+  if (refMes) {
+    q = q.gte("data_venda", inicioMes(refMes).toISOString())
+         .lte("data_venda", fimMes(refMes).toISOString());
+  }
   const { data, error } = await q;
   if (error) {
     if (isMissingTable(error)) return [];
@@ -366,7 +389,7 @@ export type VoucherUso = {
   valor: number;
 };
 
-export async function getVouchersUsados(unidadeId: string, desdeMes: boolean = true): Promise<VoucherUso[]> {
+export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promise<VoucherUso[]> {
   const supabase = await createClient();
   let q = supabase
     .from("vendas")
@@ -374,7 +397,10 @@ export async function getVouchersUsados(unidadeId: string, desdeMes: boolean = t
     .eq("unidade_id", unidadeId)
     .eq("situacao", "sucesso")
     .not("voucher_codigo", "is", null);
-  if (desdeMes) q = q.gte("data_venda", inicioMes().toISOString());
+  if (refMes) {
+    q = q.gte("data_venda", inicioMes(refMes).toISOString())
+         .lte("data_venda", fimMes(refMes).toISOString());
+  }
   const { data, error } = await q;
   if (error) {
     if (isMissingTable(error)) return [];

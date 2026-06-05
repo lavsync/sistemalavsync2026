@@ -20,6 +20,7 @@ import type {
   CupomUso, VoucherUso,
 } from "@/lib/vendas-queries";
 import { ImportarVendasDialog } from "@/components/performance/importar-vendas-dialog";
+import { PerformanceMesFiltro } from "@/components/performance/mes-filtro";
 
 function fmtBRL(n: number): string {
   return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -56,6 +57,8 @@ export function PerformanceView({
           </Button>
         }
       />
+
+      {!baseVazia && <PerformanceMesFiltro />}
 
       {baseVazia && <EstadoVazio unidadeNome={unidadeNome} onImportar={() => setImportOpen(true)} />}
 
