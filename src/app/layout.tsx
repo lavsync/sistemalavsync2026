@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Sora, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { CookieBanner } from "@/components/legal/cookie-banner";
 import "./globals.css";
 
 // Brandbook §04: Inter = corpo / UI · Sora = títulos / KPIs / wordmark / CTA
@@ -74,7 +75,10 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <TooltipProvider delayDuration={120}>{children}</TooltipProvider>
+          <TooltipProvider delayDuration={120}>
+            {children}
+            <CookieBanner />
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>

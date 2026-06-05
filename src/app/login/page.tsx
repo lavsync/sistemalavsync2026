@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { LoginForm } from "./login-form";
+import { LEGAL_LINKS } from "@/lib/legal-config";
 
 export const metadata = {
   title: "Entrar · LavSync",
@@ -111,6 +113,18 @@ export default function LoginPage({
           <Suspense>
             <LoginForm searchParamsPromise={searchParams} />
           </Suspense>
+
+          {/* Footer legal (links públicos sem auth) */}
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-white/45">
+            {LEGAL_LINKS.map((l, i) => (
+              <span key={l.href} className="inline-flex items-center gap-3">
+                {i > 0 && <span className="text-white/20">·</span>}
+                <Link href={l.href} className="hover:text-brand-cyan transition-colors">
+                  {l.label}
+                </Link>
+              </span>
+            ))}
+          </div>
         </div>
       </section>
     </main>

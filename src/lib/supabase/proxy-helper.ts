@@ -35,7 +35,12 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico";
+    pathname === "/favicon.ico" ||
+    // ─── Páginas legais públicas (LGPD) ──────────────────────────────
+    pathname.startsWith("/politica-de-privacidade") ||
+    pathname.startsWith("/termos-de-uso") ||
+    pathname.startsWith("/politica-de-cookies") ||
+    pathname.startsWith("/direitos-lgpd");
 
   // Não autenticado e tentando acessar área restrita → redireciona pra /login
   if (!user && !isPublic) {
