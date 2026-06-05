@@ -19,7 +19,7 @@ import { InsightCard } from "@/components/ui/insight-card";
 import { Button } from "@/components/ui/button";
 import { tooltipFormatter } from "@/lib/recharts-helpers";
 import type {
-  ClientesKpis, SegmentoRFM, TopCliente, CrescimentoSemanal, ClienteRow,
+  ClientesKpis, SegmentoRFM, TopCliente, TopClienteMes, CrescimentoSemanal, ClienteRow,
   AtividadeFiltro, OrigemFiltro, GeneroFiltro, OrdenacaoFiltro,
   GeneroSlice, NovosResumo,
 } from "@/lib/clientes-queries";
@@ -28,6 +28,7 @@ import { ClientesFiltros } from "@/components/clientes/clientes-filtros";
 import { ClientesPaginacao } from "@/components/clientes/clientes-paginacao";
 import { DistribuicaoGenero } from "@/components/clientes/distribuicao-genero";
 import { NovosClientes } from "@/components/clientes/novos-clientes";
+import { TopClientesMes } from "@/components/clientes/top-clientes-mes";
 
 // Curva de retenção sintética (futuro: cohort real)
 const RETENCAO_PLACEHOLDER = [
@@ -54,6 +55,7 @@ export function ClientesView({
   kpis,
   segmentos,
   topClientes,
+  topClientesMes,
   crescimento,
   clientes,
   totalClientes,
@@ -69,6 +71,7 @@ export function ClientesView({
   kpis: ClientesKpis;
   segmentos: SegmentoRFM[];
   topClientes: TopCliente[];
+  topClientesMes: TopClienteMes[];
   crescimento: CrescimentoSemanal[];
   clientes: ClienteRow[];
   totalClientes: number;
@@ -312,11 +315,14 @@ export function ClientesView({
         </div>
       )}
 
-      {/* Top + listagem */}
+      {/* Top do mês (snapshot 30d) */}
+      {!baseVazia && <TopClientesMes clientes={topClientesMes} />}
+
+      {/* Top LTV lifetime */}
       {!baseVazia && (
         <ChartCard
-          title="Top clientes · LTV"
-          subtitle="Maior valor acumulado · ordenado por compras totais"
+          title="Top clientes · LTV total (lifetime)"
+          subtitle="Maior valor acumulado em toda a base · ordenado por compras totais"
         >
           <div className="overflow-x-auto -mx-2">
             <table className="w-full text-xs">

@@ -320,6 +320,56 @@ export type TopCliente = {
   tag: "Campeão" | "Leal" | "Em risco" | "Dormente" | "Novo";
 };
 
+export type TopClienteMes = {
+  id: string;
+  nome: string;
+  phone: string;
+  visitasMes: number;
+  valorMes: number;
+  ultimaCompra: string;
+  origem: string;
+};
+
+export async function getTopClientesMes(
+  unidadeId: string,
+  limit: number = 10,
+): Promise<TopClienteMes[]> {
+  const supabase = await createClient();
+  // "Mês" aqui = janela de 30 dias do último snapshot (compras_30d_*).
+  // Atualizado a cada upload MAXPAN/VM, então sempre reflete o mês mais recente
+  // sincronizado. Quando MAXLAV API + tabela ciclos chegar, isso vira agregação real.
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("id, nome, telefone, compras_30d_qtd, compras_30d_valor, ultima_compra_em, origem_sistema")
+    .eq("unidade_id", unidadeId)
+    .gt("compras_30d_valor", 0)
+    .order("compras_30d_valor", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw error;
+  }
+  return ((data ?? []) as Array<{
+    id: string;
+    nome: string;
+    telefone: string | null;
+    compras_30d_qtd: number | string;
+    compras_30d_valor: number | string;
+    ultima_compra_em: string | null;
+    origem_sistema: string;
+  }>).map((r) => ({
+    id: r.id,
+    nome: r.nome,
+    phone: r.telefone ?? "—",
+    visitasMes: Number(r.compras_30d_qtd) || 0,
+    valorMes: Math.round((Number(r.compras_30d_valor) || 0) * 100) / 100,
+    ultimaCompra: r.ultima_compra_em
+      ? new Date(r.ultima_compra_em).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+      : "—",
+    origem: r.origem_sistema,
+  }));
+}
+
 export async function getTopClientes(
   unidadeId: string,
   limit: number = 10,
@@ -425,7 +475,7 @@ export async function getDistribuicaoGenero(unidadeId: string): Promise<GeneroSl
 }
 
 // ─── Novos clientes por período ─────────────────────────────────────────────
-export type PeriodoNovos = "hoje" | "7d" | "30d" | "180d" | "1y";
+export type PeriodoNovos = "hoje" | "7d" | "30d" | "180d" | "1y" | "data";
 
 export type NovoCliente = {
   id: string;
@@ -451,7 +501,7 @@ export type NovosResumo = {
   clientes: NovoCliente[];
 };
 
-const PERIODO_DIAS: Record<PeriodoNovos, number> = {
+const PERIODO_DIAS: Record<Exclude<PeriodoNovos, "data">, number> = {
   hoje: 1, "7d": 7, "30d": 30, "180d": 180, "1y": 365,
 };
 
@@ -465,20 +515,29 @@ export async function getNovosClientes(
   unidadeId: string,
   periodo: PeriodoNovos,
   limit: number = 200,
+  dia?: string, // YYYY-MM-DD (usado quando periodo === "data")
 ): Promise<NovosResumo> {
   const supabase = await createClient();
-  const dia = 24 * 60 * 60 * 1000;
-  const dias = PERIODO_DIAS[periodo];
+  const ms_dia = 24 * 60 * 60 * 1000;
 
-  // Janela atual: [inicio, agora]
-  const fim = new Date();
-  const inicio = periodo === "hoje"
-    ? inicioDeHoje()
-    : new Date(fim.getTime() - dias * dia);
-  // Janela anterior (mesmo tamanho, imediatamente antes)
-  const inicioAnterior = new Date(inicio.getTime() - dias * dia);
+  let inicio: Date;
+  let fim: Date;
+  let inicioAnterior: Date;
 
-  const [{ data: atuais, error: e1, count: countAtual }, { count: countAnterior, error: e2 }] = await Promise.all([
+  if (periodo === "data" && dia) {
+    // Janela: aquele dia (00:00 → 23:59:59 local)
+    const [y, m, d] = dia.split("-").map(Number);
+    inicio = new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+    fim = new Date(y, (m ?? 1) - 1, d ?? 1, 23, 59, 59, 999);
+    inicioAnterior = new Date(inicio.getTime() - ms_dia);
+  } else {
+    fim = new Date();
+    const dias = PERIODO_DIAS[(periodo === "data" ? "30d" : periodo) as Exclude<PeriodoNovos, "data">];
+    inicio = periodo === "hoje" ? inicioDeHoje() : new Date(fim.getTime() - dias * ms_dia);
+    inicioAnterior = new Date(inicio.getTime() - dias * ms_dia);
+  }
+
+  const [{ data: atuais, error: e1, count: countAtual }, { count: countAnterior }] = await Promise.all([
     supabase
       .from("clientes")
       .select(
@@ -508,7 +567,6 @@ export async function getNovosClientes(
     }
     throw e1;
   }
-  if (e2 && !isMissingTable(e2)) throw e2;
 
   const totalAtual = countAtual ?? (atuais?.length ?? 0);
   const totalAnterior = countAnterior ?? 0;

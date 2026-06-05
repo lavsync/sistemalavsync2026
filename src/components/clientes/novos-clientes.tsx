@@ -16,17 +16,39 @@ const PERIODOS: Array<{ key: PeriodoNovos; label: string; subtitle: string }> = 
   { key: "30d",   label: "30 dias",  subtitle: "Último mês" },
   { key: "180d",  label: "6 meses",  subtitle: "Último semestre" },
   { key: "1y",    label: "1 ano",    subtitle: "Últimos 12 meses" },
+  { key: "data",  label: "Data específica", subtitle: "Calendário" },
 ];
+
+function hojeIso(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
   const router = useRouter();
   const sp = useSearchParams();
   const periodoAtivo = (sp.get("novos") as PeriodoNovos) || "30d";
+  const diaParam = sp.get("dia") || hojeIso();
 
   function trocarPeriodo(p: PeriodoNovos) {
     const next = new URLSearchParams(sp.toString());
     if (p === "30d") next.delete("novos");
     else next.set("novos", p);
+    if (p === "data") {
+      next.set("dia", diaParam);
+    } else {
+      next.delete("dia");
+    }
+    router.push(`/clientes?${next.toString()}`);
+  }
+
+  function trocarDia(novoDia: string) {
+    const next = new URLSearchParams(sp.toString());
+    next.set("novos", "data");
+    next.set("dia", novoDia);
     router.push(`/clientes?${next.toString()}`);
   }
 
@@ -35,7 +57,11 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
   return (
     <ChartCard
       title="Novos clientes"
-      subtitle={`${periodoMeta.subtitle} · cadastros via totem MAXPAN/VM`}
+      subtitle={
+        periodoAtivo === "data"
+          ? `Cadastros em ${fmtDiaBR(diaParam)}`
+          : `${periodoMeta.subtitle} · cadastros via totem MAXPAN/VM`
+      }
       actions={
         <div className="hidden md:flex items-center gap-1 text-[10px] text-muted-foreground">
           <Calendar className="w-3 h-3" />
@@ -44,7 +70,7 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
       }
     >
       {/* Tabs de período */}
-      <div className="flex flex-wrap gap-1.5 mb-4">
+      <div className="flex flex-wrap gap-1.5 mb-3">
         {PERIODOS.map((p) => {
           const ativo = p.key === periodoAtivo;
           return (
@@ -52,17 +78,59 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
               key={p.key}
               onClick={() => trocarPeriodo(p.key)}
               className={cn(
-                "px-3 py-1.5 rounded-md text-[11px] font-semibold border transition-smooth",
+                "px-3 py-1.5 rounded-md text-[11px] font-semibold border transition-smooth inline-flex items-center gap-1.5",
                 ativo
                   ? "bg-gradient-to-r from-brand-cyan to-brand-blue text-white border-transparent shadow"
                   : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground hover:border-border-strong",
               )}
             >
+              {p.key === "data" && <Calendar className="w-3 h-3" />}
               {p.label}
             </button>
           );
         })}
       </div>
+
+      {/* Date picker — só aparece quando tab Data está ativa */}
+      {periodoAtivo === "data" && (
+        <div className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-lg border border-brand-cyan/25 bg-brand-cyan/5">
+          <Calendar className="w-4 h-4 text-brand-cyan" />
+          <label className="text-[11px] font-semibold text-muted-foreground">Escolha o dia:</label>
+          <input
+            type="date"
+            value={diaParam}
+            max={hojeIso()}
+            onChange={(e) => e.target.value && trocarDia(e.target.value)}
+            className="form-input h-8 text-[12px] py-0 font-mono"
+          />
+          <div className="flex items-center gap-1 ml-auto">
+            <button
+              onClick={() => trocarDia(adicionarDias(diaParam, -1))}
+              className="px-2 py-1 rounded border border-border text-[11px] hover:bg-secondary"
+              aria-label="Dia anterior"
+            >
+              ‹ Anterior
+            </button>
+            <button
+              onClick={() => trocarDia(hojeIso())}
+              className="px-2 py-1 rounded border border-border text-[11px] hover:bg-secondary"
+            >
+              Hoje
+            </button>
+            <button
+              onClick={() => {
+                const proximo = adicionarDias(diaParam, 1);
+                if (proximo <= hojeIso()) trocarDia(proximo);
+              }}
+              disabled={diaParam >= hojeIso()}
+              className="px-2 py-1 rounded border border-border text-[11px] hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
+              aria-label="Próximo dia"
+            >
+              Próximo ›
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Hero: contagem + comparativo */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr] gap-3 mb-4">
@@ -258,4 +326,21 @@ function fmtPeriodo(iniIso: string, fimIso: string): string {
   const i = new Date(iniIso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   const f = new Date(fimIso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   return `${i} → ${f}`;
+}
+
+function fmtDiaBR(yyyymmdd: string): string {
+  const [y, m, d] = yyyymmdd.split("-").map(Number);
+  if (!y || !m || !d) return yyyymmdd;
+  const data = new Date(y, m - 1, d);
+  return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+function adicionarDias(yyyymmdd: string, delta: number): string {
+  const [y, m, d] = yyyymmdd.split("-").map(Number);
+  const data = new Date(y, m - 1, d);
+  data.setDate(data.getDate() + delta);
+  const yy = data.getFullYear();
+  const mm = String(data.getMonth() + 1).padStart(2, "0");
+  const dd = String(data.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
