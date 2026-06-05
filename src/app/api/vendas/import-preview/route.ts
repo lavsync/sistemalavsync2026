@@ -55,15 +55,27 @@ function detectarMultiplo(valor: number, preco: number, max: number = 10): numbe
   return 0;
 }
 
+// Exceções específicas (faixas promocionais/combos identificadas em produção)
+const EXCECOES: Array<{ valor: number; tipo: TipoServico; ciclos: number }> = [
+  { valor: 8.49,  tipo: "secagem", ciclos: 1 },  // 50% off de R$ 16,99
+  { valor: 16.98, tipo: "secagem", ciclos: 1 },  // centavo a menos por arredondamento
+  { valor: 25.47, tipo: "secagem", ciclos: 2 },  // combo R$ 16,99 + meia R$ 8,49
+];
+
 // Inferência (definida pelo Daniel 2026-06-05):
 // - Lavagem: R$ 17,00 (e múltiplos: 34, 51, ...) — também R$ 15,00 (preço antigo)
 // - Secagem: R$ 16,99 (e múltiplos: 33,98, 50,97, ...) — também R$ 14,99 (antigo)
 // - Cupom LAVAR* ou INAUGURA20 → lavagem (1 ciclo)
 // - Cupom SECAR* → secagem (1 ciclo)
+// - Exceções específicas (R$ 8,49 / R$ 16,98 / R$ 25,47) tratadas antes da regra geral
 function inferirServicoECiclos(valor: number, cupom: string | null): { tipo: TipoServico; ciclos: number } {
   const c = (cupom ?? "").toUpperCase();
   if (c.startsWith("LAVAR") || c === "INAUGURA20") return { tipo: "lavagem", ciclos: 1 };
   if (c.startsWith("SECAR")) return { tipo: "secagem", ciclos: 1 };
+
+  for (const e of EXCECOES) {
+    if (Math.abs(valor - e.valor) < 0.005) return { tipo: e.tipo, ciclos: e.ciclos };
+  }
 
   let n = detectarMultiplo(valor, PRECO_LAVAGEM_ATUAL);
   if (n > 0) return { tipo: "lavagem", ciclos: n };
