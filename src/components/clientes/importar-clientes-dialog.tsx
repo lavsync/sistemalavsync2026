@@ -21,6 +21,8 @@ type PreviewResp = {
   sheet: string;
   headerLinha: number;
   snapshotEm: string | null;
+  origemDetectada: "maxpan" | "vm_tecnologia" | "manual";
+  modoSugerido: "sync" | "merge" | "upsert" | "append";
   total: number;
   lavanderiasDetectadas: string[];
   preview: PreviewLinha[];
@@ -45,8 +47,8 @@ export function ImportarClientesDialog({
   const [preview, setPreview] = React.useState<PreviewResp | null>(null);
   const [parseError, setParseError] = React.useState<string | null>(null);
 
-  const [modo, setModo] = React.useState<"upsert" | "append" | "merge">("upsert");
-  const [origem, setOrigem] = React.useState<"maxlav" | "vm_tecnologia" | "manual">("maxlav");
+  const [modo, setModo] = React.useState<"upsert" | "append" | "merge" | "sync">("sync");
+  const [origem, setOrigem] = React.useState<"maxpan" | "vm_tecnologia" | "manual">("maxpan");
 
   const [importing, setImporting] = React.useState(false);
   const [result, setResult] = React.useState<ImportResult | null>(null);
@@ -81,6 +83,13 @@ export function ImportarClientesDialog({
         return;
       }
       setPreview(data);
+      // Auto-seleção: o sistema detecta MAXPAN ou VM e sugere o modo certo
+      if (data.origemDetectada && data.origemDetectada !== "manual") {
+        setOrigem(data.origemDetectada);
+      }
+      if (data.modoSugerido) {
+        setModo(data.modoSugerido);
+      }
     } catch (e) {
       setParseError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -314,8 +323,8 @@ export function ImportarClientesDialog({
                                 onChange={(e) => setOrigem(e.target.value as typeof origem)}
                                 className="form-input"
                               >
-                                <option value="maxlav">MAXLAV (MAXPAN) — atual</option>
-                                <option value="vm_tecnologia">VM Tecnologia (legado)</option>
+                                <option value="maxpan">MAXPAN — sistema atual (CSV diário)</option>
+                                <option value="vm_tecnologia">VM Tecnologia (legado, antes da migração)</option>
                                 <option value="manual">Manual / outro</option>
                               </select>
                             </FieldGroup>
@@ -325,8 +334,9 @@ export function ImportarClientesDialog({
                                 onChange={(e) => setModo(e.target.value as typeof modo)}
                                 className="form-input"
                               >
-                                <option value="upsert">Upsert — sobrescreve dados se CPF já existe (novo é mais recente)</option>
+                                <option value="sync">Sync — alimentação contínua (atualiza métricas, dedup por CPF)</option>
                                 <option value="merge">Merge — enriquece sem sobrescrever (backup/legado)</option>
+                                <option value="upsert">Upsert — sobrescreve tudo se CPF já existe</option>
                                 <option value="append">Append — só insere novos, ignora duplicatas</option>
                               </select>
                             </FieldGroup>

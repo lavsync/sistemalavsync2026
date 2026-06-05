@@ -53,7 +53,7 @@ function isMissingTable(err: unknown): boolean {
 }
 
 export type AtividadeFiltro = "todos" | "ativos90d" | "emrisco" | "dormentes" | "semcompra";
-export type OrigemFiltro = "todos" | "maxlav" | "vm_tecnologia" | "manual" | "api";
+export type OrigemFiltro = "todos" | "maxpan" | "vm_tecnologia" | "manual" | "api";
 export type GeneroFiltro = "todos" | "Masculino" | "Feminino" | "Outro";
 export type OrdenacaoFiltro =
   | "ltv_desc"

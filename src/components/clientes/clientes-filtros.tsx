@@ -8,7 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type AtividadeKey = "todos" | "ativos90d" | "emrisco" | "dormentes" | "semcompra";
-type OrigemKey = "todos" | "maxlav" | "vm_tecnologia" | "manual" | "api";
+type OrigemKey = "todos" | "maxpan" | "vm_tecnologia" | "manual" | "api";
 type GeneroKey = "todos" | "Masculino" | "Feminino" | "Outro";
 type OrdenacaoKey =
   | "ltv_desc" | "ltv_asc" | "compras_desc"
@@ -25,7 +25,7 @@ const ATIVIDADE_OPCOES: Array<{ key: AtividadeKey; label: string; icon: React.El
 
 const ORIGEM_OPCOES: Array<{ key: OrigemKey; label: string }> = [
   { key: "todos",          label: "Toda origem" },
-  { key: "maxlav",         label: "MAXLAV" },
+  { key: "maxpan",         label: "MAXPAN" },
   { key: "vm_tecnologia",  label: "VM Tecnologia" },
   { key: "manual",         label: "Manual" },
   { key: "api",            label: "API" },

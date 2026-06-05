@@ -424,14 +424,14 @@ export function ClientesView({
                         <td className="py-2 px-3 text-[10px]">
                           <span
                             className={
-                              c.origem_sistema === "maxlav"
+                              c.origem_sistema === "maxpan"
                                 ? "px-1.5 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan font-semibold"
                                 : c.origem_sistema === "vm_tecnologia"
                                 ? "px-1.5 py-0.5 rounded bg-brand-purple/10 text-brand-purple font-semibold"
                                 : "px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
                             }
                           >
-                            {c.origem_sistema === "maxlav" ? "MAXLAV"
+                            {c.origem_sistema === "maxpan" ? "MAXPAN"
                               : c.origem_sistema === "vm_tecnologia" ? "VM"
                               : c.origem_sistema}
                           </span>
