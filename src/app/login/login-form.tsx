@@ -2,7 +2,7 @@
 
 import { use, useActionState, useState } from "react";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, ArrowRight } from "lucide-react";
 import { signInAction, type LoginState } from "./actions";
 
 export function LoginForm({
@@ -21,46 +21,31 @@ export function LoginForm({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className="relative rounded-[28px] overflow-hidden"
+      className="relative rounded-3xl overflow-hidden"
       style={{
-        background:
-          "linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(8, 17, 31, 0.86) 100%)",
-        border: "1px solid rgba(255,255,255,0.06)",
+        // Glassmorphism oficial (Brandbook §09)
+        background: "rgba(255, 255, 255, 0.05)",
+        backdropFilter: "blur(18px) saturate(150%)",
+        WebkitBackdropFilter: "blur(18px) saturate(150%)",
+        border: "1px solid rgba(255, 255, 255, 0.10)",
         boxShadow:
-          "0 30px 80px -30px rgba(0,0,0,0.7), 0 12px 40px -16px rgba(139,92,246,0.25), inset 0 1px 0 rgba(255,255,255,0.04)",
-        backdropFilter: "blur(18px) saturate(140%)",
+          "0 30px 80px -30px rgba(0, 0, 0, 0.8), 0 12px 40px -16px rgba(25, 199, 203, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06)",
       }}
     >
-      <div className="px-8 pt-8 pb-7">
-        {/* Brand */}
-        <div className="flex items-center gap-3 mb-7">
-          <div
-            className="w-11 h-11 rounded-2xl flex items-center justify-center"
-            style={{
-              background:
-                "linear-gradient(135deg, #22D3EE 0%, #6366F1 50%, #8B5CF6 100%)",
-              boxShadow: "0 6px 20px -6px rgba(139,92,246,0.55)",
-            }}
-          >
-            <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2.5c-3.5 4.5-6 7.5-6 11a6 6 0 0 0 12 0c0-3.5-2.5-6.5-6-11z" />
-              <circle cx="12" cy="14" r="2" fill="currentColor" />
-            </svg>
-          </div>
-          <div>
-            <div className="font-display font-bold text-[19px] leading-none tracking-tight text-white">
-              Lav<span className="bg-gradient-to-r from-brand-cyan via-brand-blue to-brand-purple bg-clip-text text-transparent">Sync</span>
-            </div>
-            <div className="text-[10.5px] mt-1.5 uppercase tracking-[0.18em] text-white/45">
-              Operations OS · v0.1
-            </div>
-          </div>
-        </div>
+      {/* Borda gradient top */}
+      <div
+        className="absolute inset-x-0 top-0 h-px"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent, rgba(25,199,203,0.5), transparent)",
+        }}
+      />
 
-        <h1 className="text-[20px] font-semibold tracking-tight text-white mb-1">
+      <div className="px-8 pt-8 pb-7">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-white mb-1.5">
           Entrar no sistema
         </h1>
         <p className="text-[13px] text-white/55 mb-7">
@@ -77,7 +62,7 @@ export function LoginForm({
               type="email"
               autoComplete="email"
               required
-              placeholder="voce@dominio.com"
+              placeholder="voce@lavanderia.com"
               className="login-input"
             />
           </Field>
@@ -99,7 +84,11 @@ export function LoginForm({
                 aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
                 className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center text-white/45 hover:text-white/85 hover:bg-white/5 transition-colors"
               >
-                {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPwd ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
               </button>
             </div>
           </Field>
@@ -110,8 +99,8 @@ export function LoginForm({
               animate={{ opacity: 1, y: 0 }}
               className="px-3 py-2.5 rounded-xl text-[12.5px] font-medium"
               style={{
-                background: "rgba(239,68,68,0.08)",
-                border: "1px solid rgba(239,68,68,0.25)",
+                background: "rgba(239, 68, 68, 0.08)",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
                 color: "rgb(252, 165, 165)",
               }}
             >
@@ -122,12 +111,13 @@ export function LoginForm({
           <button
             type="submit"
             disabled={pending}
-            className="relative w-full h-12 rounded-2xl font-semibold text-[14px] text-white overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed transition-transform active:scale-[0.985]"
+            className="group relative w-full h-12 rounded-2xl font-display font-semibold text-[14px] text-white overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed transition-transform active:scale-[0.985] mt-1"
             style={{
+              // Gradiente Oficial LavSync 135°
               background:
-                "linear-gradient(135deg, #22D3EE 0%, #6366F1 50%, #8B5CF6 100%)",
+                "linear-gradient(135deg, #01385B 0%, #0F859A 35%, #19C7CB 70%, #73D8D8 100%)",
               boxShadow:
-                "0 12px 28px -10px rgba(99,102,241,0.55), inset 0 1px 0 rgba(255,255,255,0.18)",
+                "0 12px 28px -10px rgba(25, 199, 203, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22)",
             }}
           >
             <span className="relative z-[2] inline-flex items-center justify-center gap-2">
@@ -137,15 +127,20 @@ export function LoginForm({
                   Autenticando…
                 </>
               ) : (
-                <>Entrar</>
+                <>
+                  Entrar
+                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+                </>
               )}
             </span>
           </button>
         </form>
 
-        <div className="mt-6 pt-5 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-white/40">
-          <span>© LavSync 2026 · Todos os direitos reservados</span>
-          <span className="font-mono">{process.env.NEXT_PUBLIC_APP_ENV ?? "prod"}</span>
+        <div className="mt-7 pt-5 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-white/40">
+          <span>Sincronizado · Inteligente · Lucrativo</span>
+          <span className="font-mono">
+            {process.env.NEXT_PUBLIC_APP_ENV ?? "prod"}
+          </span>
         </div>
       </div>
     </motion.div>
@@ -165,7 +160,7 @@ function Field({
     <div>
       <label
         htmlFor={htmlFor}
-        className="block text-[10.5px] font-semibold uppercase tracking-[0.16em] text-white/45 mb-2"
+        className="block text-[10.5px] font-display font-semibold uppercase tracking-[0.16em] text-white/55 mb-2"
       >
         {label}
       </label>

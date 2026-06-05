@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -71,33 +72,45 @@ export function Sidebar({
 function BrandHeader({ collapsed }: { collapsed: boolean }) {
   return (
     <div className="px-5 pt-5 pb-4">
-      <Link href="/" className="flex items-center gap-3 group">
-        <div className="relative">
-          <div className="w-10 h-10 rounded-2xl sidebar-logo-glow flex items-center justify-center">
-            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] text-white" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2.5c-3.5 4.5-6 7.5-6 11a6 6 0 0 0 12 0c0-3.5-2.5-6.5-6-11z" />
-              <circle cx="12" cy="14" r="2" fill="currentColor" />
-            </svg>
+      <Link href="/" className="flex items-center gap-3 group" aria-label="LavSync · Início">
+        {collapsed ? (
+          // Collapsed: símbolo isolado (Brandbook §02)
+          <div className="relative w-10 h-10 flex items-center justify-center sidebar-logo-glow rounded-xl">
+            <Image
+              src="/brand/logo/lavsync-simbolo.png"
+              alt="LavSync"
+              width={40}
+              height={40}
+              priority
+              className="w-9 h-9 object-contain"
+            />
           </div>
-        </div>
-        <AnimatePresence initial={false}>
-          {!collapsed && (
-            <motion.div
-              key="brand-text"
-              initial={{ opacity: 0, x: -6 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -6 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className="overflow-hidden whitespace-nowrap"
-            >
-              <div className="font-display font-bold text-[17px] leading-none tracking-tight text-white">
-                Lav<span className="bg-gradient-to-r from-brand-cyan via-brand-blue to-brand-purple bg-clip-text text-transparent">Sync</span>
-              </div>
-              <div className="text-[10px] mt-1.5 sidebar-group-label">v0.1 · Operations OS</div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        ) : (
+          // Expanded: logotipo horizontal branco oficial
+          <Image
+            src="/brand/logo/lavsync-horizontal-branco.png"
+            alt="LavSync"
+            width={200}
+            height={48}
+            priority
+            className="h-9 w-auto object-contain"
+          />
+        )}
       </Link>
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            key="brand-tagline"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="mt-2 ml-1 text-[9.5px] uppercase tracking-[0.22em] font-semibold text-brand-cyan/70"
+          >
+            Operations OS · v1.0
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -372,9 +385,15 @@ function UserCard({
           backdropFilter: "blur(14px)",
         }}
       >
-        {/* Avatar */}
+        {/* Avatar — gradient oficial LavSync */}
         <div className="relative shrink-0">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-cyan via-brand-blue to-brand-purple flex items-center justify-center text-[12px] font-bold text-white shadow-[0_6px_18px_-6px_rgba(139,92,246,0.6)]">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-[12px] font-bold text-white shadow-[0_6px_18px_-6px_rgba(25,199,203,0.6)]"
+            style={{
+              background:
+                "linear-gradient(135deg, #01385B 0%, #0F859A 35%, #19C7CB 70%, #73D8D8 100%)",
+            }}
+          >
             {user.initials}
           </div>
           <span

@@ -36,11 +36,15 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* Brand accents */
+  /* Brand accents (LavSync paleta oficial v1.0) */
   --color-brand-cyan: var(--brand-cyan);
   --color-brand-blue: var(--brand-blue);
   --color-brand-purple: var(--brand-purple);
   --color-brand-violet: var(--brand-violet);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-aqua: var(--brand-aqua);
+  --color-brand-ice: var(--brand-ice);
+  --color-brand-deep: var(--brand-deep);
 
   /* Semantic */
   --color-success: var(--success);
@@ -80,124 +84,136 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* ============ LIGHT (defined first so .dark below wins) ============ */
+/* ============ LIGHT — Paleta oficial LavSync (Brandbook v1.0) ============ */
 :root {
-  --background: #F8FAFC;
-  --surface-1: #FFFFFF;
+  --background: #F8FAFC;          /* Fundo App */
+  --surface-1: #FFFFFF;            /* Branco Puro */
   --surface-2: #F1F5F9;
-  --surface-glass: rgba(15, 23, 42, 0.04);
-  --foreground: #0F172A;
+  --surface-glass: rgba(1, 56, 91, 0.04);
+  --foreground: #0B1220;           /* Preto Premium */
 
   --card: #FFFFFF;
-  --card-foreground: #0F172A;
+  --card-foreground: #0B1220;
   --popover: #FFFFFF;
-  --popover-foreground: #0F172A;
+  --popover-foreground: #0B1220;
 
-  --primary: #0891B2;
+  --primary: #01385B;              /* Deep Ocean Blue — CTA principal */
   --primary-foreground: #FFFFFF;
   --secondary: #F1F5F9;
-  --secondary-foreground: #0F172A;
+  --secondary-foreground: #0B1220;
   --muted: #F1F5F9;
-  --muted-foreground: #64748B;
+  --muted-foreground: #64748B;     /* Cinza Médio */
   --accent: #F1F5F9;
-  --accent-foreground: #0F172A;
-  --destructive: #DC2626;
+  --accent-foreground: #0B1220;
+  --destructive: #EF4444;          /* Sistema · Error */
 
   --border: #E2E8F0;
-  --border-strong: #CBD5E1;
+  --border-strong: #CBD5E1;        /* Cinza Claro */
   --input: #E2E8F0;
-  --ring: rgba(8, 145, 178, 0.5);
+  --ring: rgba(25, 199, 203, 0.45);  /* Bright Cyan */
 
-  --brand-cyan: #06B6D4;
-  --brand-blue: #2563EB;
-  --brand-purple: #7C3AED;
-  --brand-violet: #9333EA;
+  /* Brand · LavSync oficial */
+  --brand-deep: #01385B;           /* Deep Ocean Blue */
+  --brand-blue: #065A76;           /* Ocean Blue */
+  --brand-teal: #0F859A;           /* Teal Sync */
+  --brand-aqua: #0FABB7;           /* Aqua Flow */
+  --brand-cyan: #19C7CB;           /* Bright Cyan — destaque */
+  --brand-ice:  #73D8D8;           /* Soft Ice */
+  --brand-purple: #065A76;         /* Alias compat = Ocean Blue */
+  --brand-violet: #0FABB7;         /* Alias compat = Aqua Flow */
 
-  --success: #16A34A;
-  --warning: #CA8A04;
-  --danger: #DC2626;
-  --info: #0284C7;
+  /* Sistema */
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --danger:  #EF4444;
+  --info:    #3B82F6;
 
-  --chart-1: #06B6D4;
-  --chart-2: #7C3AED;
-  --chart-3: #2563EB;
-  --chart-4: #16A34A;
-  --chart-5: #CA8A04;
+  /* Charts (gradiente oficial) */
+  --chart-1: #19C7CB;              /* Bright Cyan */
+  --chart-2: #0F859A;              /* Teal Sync */
+  --chart-3: #01385B;              /* Deep Ocean */
+  --chart-4: #73D8D8;              /* Soft Ice */
+  --chart-5: #0FABB7;              /* Aqua Flow */
 
   --radius: 0.75rem;
 
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #475569;
-  --sidebar-primary: #06B6D4;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: rgba(6, 182, 212, 0.08);
-  --sidebar-accent-foreground: #06B6D4;
-  --sidebar-border: #E2E8F0;
-  --sidebar-ring: rgba(6, 182, 212, 0.4);
+  /* Sidebar — Brandbook DS-06 */
+  --sidebar: #01385B;
+  --sidebar-foreground: #CBD5E1;
+  --sidebar-primary: #19C7CB;
+  --sidebar-primary-foreground: #01385B;
+  --sidebar-accent: rgba(25, 199, 203, 0.15);
+  --sidebar-accent-foreground: #19C7CB;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: rgba(25, 199, 203, 0.5);
 }
 
-/* ============ DARK (PRIMARY) ============ */
+/* ============ DARK — LavSync Premium (Brandbook §09 Key Visual) ============ */
 .dark {
-  /* Backgrounds */
-  --background: #050816;
-  --surface-1: #0B1020;
-  --surface-2: #111827;
+  /* Backgrounds (Dark Tech Premium #0B1220) */
+  --background: #0B1220;           /* Preto Premium oficial */
+  --surface-1: #0F1A2E;
+  --surface-2: #142036;
   --surface-glass: rgba(255, 255, 255, 0.04);
-  --foreground: #F1F5F9;
+  --foreground: #F8FAFC;
 
   /* Cards & overlays */
-  --card: #0E1424;
-  --card-foreground: #F1F5F9;
-  --popover: #0E1424;
-  --popover-foreground: #F1F5F9;
+  --card: #0F1A2E;
+  --card-foreground: #F8FAFC;
+  --popover: #0F1A2E;
+  --popover-foreground: #F8FAFC;
 
-  /* Primary action */
-  --primary: #22D3EE;
-  --primary-foreground: #050816;
+  /* Primary action — Bright Cyan oficial */
+  --primary: #19C7CB;
+  --primary-foreground: #0B1220;
   --secondary: #1E293B;
-  --secondary-foreground: #F1F5F9;
+  --secondary-foreground: #F8FAFC;
   --muted: #131C30;
   --muted-foreground: #94A3B8;
   --accent: #1E293B;
-  --accent-foreground: #F1F5F9;
+  --accent-foreground: #F8FAFC;
   --destructive: #EF4444;
 
   /* Borders & rings */
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
   --input: rgba(255, 255, 255, 0.08);
-  --ring: rgba(34, 211, 238, 0.5);
+  --ring: rgba(25, 199, 203, 0.5);
 
-  /* Brand */
-  --brand-cyan: #22D3EE;
-  --brand-blue: #3B82F6;
-  --brand-purple: #8B5CF6;
-  --brand-violet: #A855F7;
+  /* Brand · LavSync oficial */
+  --brand-deep: #01385B;           /* Deep Ocean Blue */
+  --brand-blue: #065A76;           /* Ocean Blue */
+  --brand-teal: #0F859A;           /* Teal Sync */
+  --brand-aqua: #0FABB7;           /* Aqua Flow */
+  --brand-cyan: #19C7CB;           /* Bright Cyan */
+  --brand-ice:  #73D8D8;           /* Soft Ice */
+  --brand-purple: #065A76;
+  --brand-violet: #0FABB7;
 
-  /* Semantic */
+  /* Sistema */
   --success: #22C55E;
-  --warning: #FACC15;
-  --danger: #EF4444;
-  --info: #38BDF8;
+  --warning: #F59E0B;
+  --danger:  #EF4444;
+  --info:    #3B82F6;
 
-  /* Charts (cinematográfico) */
-  --chart-1: #22D3EE;
-  --chart-2: #8B5CF6;
-  --chart-3: #3B82F6;
-  --chart-4: #22C55E;
-  --chart-5: #FACC15;
+  /* Charts (gradiente oficial) */
+  --chart-1: #19C7CB;
+  --chart-2: #0F859A;
+  --chart-3: #73D8D8;
+  --chart-4: #0FABB7;
+  --chart-5: #01385B;
 
   --radius: 0.75rem;
 
-  /* Sidebar */
-  --sidebar: #07091A;
-  --sidebar-foreground: #94A3B8;
-  --sidebar-primary: #22D3EE;
-  --sidebar-primary-foreground: #050816;
-  --sidebar-accent: rgba(34, 211, 238, 0.1);
-  --sidebar-accent-foreground: #22D3EE;
+  /* Sidebar — DS-06 oficial */
+  --sidebar: #01385B;
+  --sidebar-foreground: #CBD5E1;
+  --sidebar-primary: #19C7CB;
+  --sidebar-primary-foreground: #01385B;
+  --sidebar-accent: rgba(25, 199, 203, 0.15);
+  --sidebar-accent-foreground: #19C7CB;
   --sidebar-border: rgba(255, 255, 255, 0.06);
-  --sidebar-ring: rgba(34, 211, 238, 0.4);
+  --sidebar-ring: rgba(25, 199, 203, 0.5);
 }
 
 @layer base {
@@ -209,20 +225,49 @@
   }
 }
 
-/* ============ CINEMATIC EFFECTS ============ */
+/* ============ KEY VISUAL · LAVSYNC ============ */
 
-/* Subtle background gradient mesh on dark */
+/* Brandbook §09: Background Dark Tech Premium com glow turquesa */
 .bg-mesh-dark {
   background:
-    radial-gradient(ellipse 1200px 600px at 80% -10%, rgba(34, 211, 238, 0.08), transparent 60%),
-    radial-gradient(ellipse 900px 500px at 10% 110%, rgba(139, 92, 246, 0.07), transparent 60%),
+    radial-gradient(ellipse 1200px 600px at 80% -10%, rgba(25, 199, 203, 0.12), transparent 60%),
+    radial-gradient(ellipse 900px 500px at 10% 110%, rgba(15, 133, 154, 0.08), transparent 60%),
     var(--background);
 }
 .light .bg-mesh-dark, :root:not(.dark) .bg-mesh-dark {
   background:
-    radial-gradient(ellipse 1200px 600px at 80% -10%, rgba(8, 145, 178, 0.06), transparent 60%),
-    radial-gradient(ellipse 900px 500px at 10% 110%, rgba(124, 58, 237, 0.05), transparent 60%),
+    radial-gradient(ellipse 1200px 600px at 80% -10%, rgba(25, 199, 203, 0.06), transparent 60%),
+    radial-gradient(ellipse 900px 500px at 10% 110%, rgba(1, 56, 91, 0.04), transparent 60%),
     var(--background);
+}
+
+/* Gradiente Oficial LavSync (135°) */
+.bg-gradient-lavsync {
+  background: linear-gradient(135deg, #01385B 0%, #0F859A 35%, #19C7CB 70%, #73D8D8 100%);
+}
+
+/* Dark Tech Premium — Hero do site/login (Brandbook §09) */
+.bg-dark-tech {
+  background: #0B1220;
+  background-image:
+    radial-gradient(circle at 50% 30%, rgba(25, 199, 203, 0.12) 0%, transparent 60%),
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: auto, 60px 60px, 60px 60px;
+}
+
+/* Particles glow turquesa (decorativo) */
+.particles-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle 2px at 15% 25%, rgba(25,199,203,0.6), transparent 80%),
+    radial-gradient(circle 3px at 75% 15%, rgba(25,199,203,0.4), transparent 80%),
+    radial-gradient(circle 2px at 85% 75%, rgba(115,216,216,0.5), transparent 80%),
+    radial-gradient(circle 4px at 25% 80%, rgba(25,199,203,0.3), transparent 80%),
+    radial-gradient(circle 2px at 60% 60%, rgba(115,216,216,0.4), transparent 80%);
 }
 
 /* Glass card */
@@ -236,13 +281,13 @@
 /* Soft glow utilities */
 .glow-cyan {
   box-shadow:
-    0 0 0 1px rgba(34, 211, 238, 0.18),
-    0 8px 32px -4px rgba(34, 211, 238, 0.18);
+    0 0 0 1px rgba(25, 199, 203, 0.22),
+    0 8px 32px -4px rgba(25, 199, 203, 0.25);
 }
 .glow-purple {
   box-shadow:
-    0 0 0 1px rgba(139, 92, 246, 0.2),
-    0 8px 32px -4px rgba(139, 92, 246, 0.2);
+    0 0 0 1px rgba(6, 90, 118, 0.22),
+    0 8px 32px -4px rgba(6, 90, 118, 0.22);
 }
 .glow-soft {
   box-shadow:
@@ -304,9 +349,9 @@
   );
 }
 
-/* Gradient text */
+/* Gradient text — oficial LavSync */
 .text-gradient-brand {
-  background: linear-gradient(135deg, var(--brand-cyan), var(--brand-purple));
+  background: linear-gradient(135deg, #01385B 0%, #0F859A 35%, #19C7CB 70%, #73D8D8 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -335,29 +380,30 @@
 
 /* Petroleum + violet ambient panel */
 .sidebar-shell {
+  /* Brandbook DS-06: background Deep Ocean Blue #01385B */
   position: relative;
   background:
-    radial-gradient(140% 80% at 0% 0%, rgba(139, 92, 246, 0.18), transparent 55%),
-    radial-gradient(120% 70% at 100% 100%, rgba(34, 211, 238, 0.12), transparent 60%),
-    linear-gradient(180deg, #08111F 0%, #050B17 50%, #03070F 100%);
+    radial-gradient(140% 80% at 0% 0%, rgba(25, 199, 203, 0.18), transparent 55%),
+    radial-gradient(120% 70% at 100% 100%, rgba(15, 133, 154, 0.14), transparent 60%),
+    linear-gradient(180deg, #01385B 0%, #022941 60%, #011D31 100%);
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.04),
     0 30px 80px -30px rgba(0, 0, 0, 0.7),
-    0 12px 40px -16px rgba(139, 92, 246, 0.25);
+    0 12px 40px -16px rgba(25, 199, 203, 0.22);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 
-/* Layered ambient glow (camada 3) */
+/* Layered ambient glow (camada 3) — turquesa oficial */
 .sidebar-shell::before {
   content: "";
   position: absolute;
   inset: -1px;
   border-radius: inherit;
   background:
-    radial-gradient(60% 35% at 50% 0%, rgba(56, 189, 248, 0.16), transparent 70%),
-    radial-gradient(40% 30% at 30% 100%, rgba(168, 85, 247, 0.14), transparent 70%);
+    radial-gradient(60% 35% at 50% 0%, rgba(25, 199, 203, 0.18), transparent 70%),
+    radial-gradient(40% 30% at 30% 100%, rgba(15, 133, 154, 0.14), transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
@@ -394,17 +440,11 @@
       0 8px 22px -6px rgba(56, 189, 248, 0.45); }
 }
 .sidebar-pill-active {
-  background:
-    linear-gradient(120deg,
-      rgba(56, 189, 248, 0.95) 0%,
-      rgba(99, 102, 241, 1) 35%,
-      rgba(168, 85, 247, 1) 65%,
-      rgba(139, 92, 246, 0.95) 100%);
-  background-size: 220% 220%;
-  animation:
-    sidebar-pill-flow 7s ease-in-out infinite,
-    sidebar-pill-pulse 4.2s ease-in-out infinite;
-  color: #FFFFFF;
+  /* Brandbook DS-06: item ativo bg rgba(25,199,203,0.15) + border-left 2px #19C7CB + texto #19C7CB */
+  background: rgba(25, 199, 203, 0.15);
+  border-left: 2px solid #19C7CB;
+  color: #19C7CB !important;
+  font-weight: 600;
 }
 .sidebar-pill-active > .pill-shine {
   position: absolute;
@@ -417,13 +457,14 @@
 
 /* Hover glow that follows cursor (uses --x, --y CSS vars set in JS) */
 .sidebar-pill-hover-glow {
+  /* Hover glow turquesa oficial */
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background: radial-gradient(
     220px circle at var(--x, 50%) var(--y, 50%),
-    rgba(139, 92, 246, 0.18),
-    rgba(56, 189, 248, 0.06) 40%,
+    rgba(25, 199, 203, 0.18),
+    rgba(15, 133, 154, 0.08) 40%,
     transparent 70%
   );
   opacity: 0;
@@ -442,14 +483,12 @@
   color: rgba(148, 163, 184, 0.55);
 }
 
-/* Logo glow */
+/* Logo glow — Brandbook (símbolo isolado fundo turquesa) */
 .sidebar-logo-glow {
   background:
-    radial-gradient(circle at 30% 30%, rgba(255,255,255,0.55), rgba(56, 189, 248, 0.55) 40%, rgba(139, 92, 246, 0.7) 80%);
+    radial-gradient(circle at 30% 30%, rgba(115, 216, 216, 0.25), rgba(25, 199, 203, 0.12) 60%, transparent 90%);
   box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,0.18),
-    0 8px 28px -8px rgba(56, 189, 248, 0.7),
-    0 6px 20px -6px rgba(139, 92, 246, 0.6);
+    0 8px 28px -8px rgba(25, 199, 203, 0.45);
 }
 
 /* ============ LOGIN INPUTS ============ */
@@ -472,9 +511,10 @@
   background: rgba(255, 255, 255, 0.05);
 }
 .login-input:focus {
-  border-color: rgba(99, 102, 241, 0.55);
-  background: rgba(99, 102, 241, 0.06);
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.10);
+  /* Bright Cyan oficial */
+  border-color: rgba(25, 199, 203, 0.55);
+  background: rgba(25, 199, 203, 0.06);
+  box-shadow: 0 0 0 4px rgba(25, 199, 203, 0.12);
 }
 
 /* ────────────────────────────────────────────────────────────────────────

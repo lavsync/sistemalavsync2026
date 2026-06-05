@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { ChartCard, LegendDot } from "@/components/ui/chart-card";
-import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { InsightCard } from "@/components/ui/insight-card";
 import { Button } from "@/components/ui/button";
@@ -76,31 +75,42 @@ export function DashboardView({ kpis, timeseries, split, hourly, machines }: Das
   const warningCount = machines.filter((m) => m.status === "warning").length;
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
-      {/* HEADER */}
-      <PageHeader
-        eyebrow="Central Operacional · Tempo Real"
-        title="Boa tarde, Daniel."
-        subtitle={
-          <>
-            Operação do dia <span className="font-semibold text-foreground">{hoje}</span> ·{" "}
-            <span className="font-mono text-foreground">R$ {fmtBRL(kpis.faturamentoHoje)}</span> em{" "}
-            <span className="font-mono text-foreground">{kpis.vendasHoje} vendas</span> · CLOCK AI monitorando 24/7.
-          </>
-        }
-        actions={
-          <>
-            <Button variant="ghost" size="sm" className="text-xs h-8">
+      {/* HERO BRANDED — Gradiente oficial LavSync (Brandbook §09) */}
+      <div className="relative overflow-hidden rounded-3xl p-6 lg:p-8 bg-gradient-lavsync particles-glow">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-sm border border-white/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-white">
+                Central Operacional · Tempo Real
+              </span>
+            </div>
+            <h1 className="font-display text-3xl lg:text-4xl font-bold tracking-tight text-white mt-3">
+              Boa tarde, Daniel.
+            </h1>
+            <p className="text-[14px] text-white/85 mt-2">
+              Operação do dia <span className="font-mono font-semibold">{hoje}</span> ·{" "}
+              <span className="font-mono font-semibold">R$ {fmtBRL(kpis.faturamentoHoje)}</span> em{" "}
+              <span className="font-mono font-semibold">{kpis.vendasHoje} vendas</span>.
+            </p>
+            <p className="text-[12px] text-white/65 mt-1 italic">
+              Tudo da sua lavanderia. Sincronizado. Inteligente. Lucrativo.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="sm" className="text-xs h-8 bg-white/10 hover:bg-white/20 text-white border-white/10">
               <Filter className="w-3 h-3 mr-1" /> Filtros
             </Button>
-            <Button variant="outline" size="sm" className="text-xs h-8">
+            <Button variant="ghost" size="sm" className="text-xs h-8 bg-white/10 hover:bg-white/20 text-white border-white/10">
               <Download className="w-3 h-3 mr-1" /> Exportar
             </Button>
-            <Button size="sm" className="text-xs h-8 bg-brand-cyan hover:bg-brand-cyan/90 text-primary-foreground">
+            <Button size="sm" className="text-xs h-8 bg-white text-brand-deep hover:bg-white/90 font-semibold">
               <Calendar className="w-3 h-3 mr-1" /> Hoje · {hoje.slice(0, 5)}
             </Button>
-          </>
-        }
-      />
+          </div>
+        </div>
+      </div>
 
       {/* KPI ROW */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
