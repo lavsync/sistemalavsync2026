@@ -2,10 +2,9 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { useRouter } from "next/navigation";
 import {
   AlertTriangle, CheckCircle2, Crown, Heart, Lightbulb, MessageSquare,
-  Search, Sparkles, TrendingDown, TrendingUp, UserPlus, Users,
+  Sparkles, TrendingDown, UserPlus, Users,
   Upload, Building2, Database, Calendar,
 } from "lucide-react";
 import {
@@ -21,8 +20,11 @@ import { Button } from "@/components/ui/button";
 import { tooltipFormatter } from "@/lib/recharts-helpers";
 import type {
   ClientesKpis, SegmentoRFM, TopCliente, CrescimentoSemanal, ClienteRow,
+  AtividadeFiltro, OrigemFiltro, GeneroFiltro, OrdenacaoFiltro,
 } from "@/lib/clientes-queries";
 import { ImportarClientesDialog } from "@/components/clientes/importar-clientes-dialog";
+import { ClientesFiltros } from "@/components/clientes/clientes-filtros";
+import { ClientesPaginacao } from "@/components/clientes/clientes-paginacao";
 
 // Curva de retenção sintética (futuro: cohort real)
 const RETENCAO_PLACEHOLDER = [
@@ -35,6 +37,14 @@ const RETENCAO_PLACEHOLDER = [
   { mes: "M6", retencao: 28 },
 ];
 
+type FiltrosAtivos = {
+  busca?: string;
+  atividade: AtividadeFiltro;
+  origem: OrigemFiltro;
+  genero: GeneroFiltro;
+  ordenacao: OrdenacaoFiltro;
+};
+
 export function ClientesView({
   unidadeId,
   unidadeNome,
@@ -44,7 +54,10 @@ export function ClientesView({
   crescimento,
   clientes,
   totalClientes,
-  busca,
+  totalFiltrado,
+  pagina,
+  pageSize,
+  filtrosAtivos,
 }: {
   unidadeId: string;
   unidadeNome: string;
@@ -54,18 +67,19 @@ export function ClientesView({
   crescimento: CrescimentoSemanal[];
   clientes: ClienteRow[];
   totalClientes: number;
-  busca: string;
+  totalFiltrado: number;
+  pagina: number;
+  pageSize: number;
+  filtrosAtivos: FiltrosAtivos;
 }) {
-  const router = useRouter();
   const [importOpen, setImportOpen] = React.useState(false);
-  const [buscaLocal, setBuscaLocal] = React.useState(busca);
   const baseVazia = totalClientes === 0;
-
-  function submitBusca(e: React.FormEvent) {
-    e.preventDefault();
-    const url = buscaLocal.trim() ? `/clientes?q=${encodeURIComponent(buscaLocal.trim())}` : "/clientes";
-    router.push(url);
-  }
+  const totalPaginas = Math.max(1, Math.ceil(totalFiltrado / pageSize));
+  const filtrando =
+    !!filtrosAtivos.busca ||
+    filtrosAtivos.atividade !== "todos" ||
+    filtrosAtivos.origem !== "todos" ||
+    filtrosAtivos.genero !== "todos";
 
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
@@ -78,26 +92,13 @@ export function ClientesView({
             : `${totalClientes} cliente${totalClientes === 1 ? "" : "s"} · segmentação RFM · novos vs recorrentes · top por LTV · oportunidades de win-back.`
         }
         actions={
-          <div className="flex items-center gap-2">
-            <form onSubmit={submitBusca} className="hidden md:flex items-center gap-1">
-              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-surface-glass border border-border focus-within:border-brand-cyan/40">
-                <Search className="w-3 h-3 text-muted-foreground" />
-                <input
-                  value={buscaLocal}
-                  onChange={(e) => setBuscaLocal(e.target.value)}
-                  placeholder="Buscar nome, CPF, telefone..."
-                  className="bg-transparent text-xs outline-none w-48"
-                />
-              </div>
-            </form>
-            <Button
-              size="sm"
-              className="text-xs h-8 bg-gradient-to-r from-brand-cyan to-brand-blue text-white hover:opacity-90"
-              onClick={() => setImportOpen(true)}
-            >
-              <Upload className="w-3 h-3 mr-1" /> Importar planilha
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            className="text-xs h-8 bg-gradient-to-r from-brand-cyan to-brand-blue text-white hover:opacity-90"
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload className="w-3 h-3 mr-1" /> Importar planilha
+          </Button>
         }
       />
 
@@ -359,54 +360,104 @@ export function ClientesView({
         </ChartCard>
       )}
 
-      {/* Listagem completa (com busca) */}
+      {/* Base completa: filtros + tabela + paginação */}
       {!baseVazia && (
-        <ChartCard
-          title={busca ? `Busca: "${busca}"` : "Base completa"}
-          subtitle={`${clientes.length} de ${totalClientes} cliente${totalClientes === 1 ? "" : "s"} nesta unidade${busca ? " (filtrados)" : ""}`}
-        >
-          <div className="overflow-x-auto -mx-2">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                  <th className="text-left font-semibold py-2 px-3">Nome</th>
-                  <th className="text-left font-semibold py-2 px-3">CPF</th>
-                  <th className="text-left font-semibold py-2 px-3">Telefone</th>
-                  <th className="text-left font-semibold py-2 px-3">E-mail</th>
-                  <th className="text-right font-semibold py-2 px-3">Compras</th>
-                  <th className="text-right font-semibold py-2 px-3">LTV</th>
-                  <th className="text-left font-semibold py-2 px-3">Cadastro</th>
-                  <th className="text-left font-semibold py-2 px-3">Última</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clientes.map((c) => (
-                  <tr key={c.id} className="border-b border-border/40 hover:bg-secondary/20">
-                    <td className="py-2 px-3 font-semibold truncate max-w-[200px]">{c.nome}</td>
-                    <td className="py-2 px-3 font-mono text-muted-foreground">{c.cpf}</td>
-                    <td className="py-2 px-3 font-mono text-muted-foreground">{c.telefone ?? "—"}</td>
-                    <td className="py-2 px-3 text-muted-foreground truncate max-w-[180px]">{c.email ?? "—"}</td>
-                    <td className="py-2 px-3 text-right font-mono">{c.compras_total_qtd}</td>
-                    <td className="py-2 px-3 text-right font-mono font-semibold">
-                      R$ {Number(c.compras_total_valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-2 px-3 text-muted-foreground text-[11px]">
-                      {c.cadastrado_em ? new Date(c.cadastrado_em).toLocaleDateString("pt-BR") : "—"}
-                    </td>
-                    <td className="py-2 px-3 text-muted-foreground text-[11px]">
-                      {c.ultima_compra_em ? new Date(c.ultima_compra_em).toLocaleDateString("pt-BR") : "—"}
-                    </td>
+        <div className="space-y-3">
+          <ClientesFiltros totalFiltrado={totalFiltrado} totalBase={totalClientes} />
+
+          <div className="rounded-2xl border border-border bg-card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border bg-muted/20">
+                    <th className="text-left font-semibold py-2.5 px-3 sticky left-0 bg-muted/40">#</th>
+                    <th className="text-left font-semibold py-2.5 px-3">Nome</th>
+                    <th className="text-left font-semibold py-2.5 px-3">CPF</th>
+                    <th className="text-left font-semibold py-2.5 px-3">Telefone</th>
+                    <th className="text-left font-semibold py-2.5 px-3">E-mail</th>
+                    <th className="text-left font-semibold py-2.5 px-3">Gên.</th>
+                    <th className="text-right font-semibold py-2.5 px-3">Compras</th>
+                    <th className="text-right font-semibold py-2.5 px-3">LTV</th>
+                    <th className="text-left font-semibold py-2.5 px-3">Cadastro</th>
+                    <th className="text-left font-semibold py-2.5 px-3">Última</th>
+                    <th className="text-left font-semibold py-2.5 px-3">Origem</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {clientes.length === 0 && (
-              <div className="text-center py-10 text-muted-foreground text-[13px]">
-                Nenhum resultado pra essa busca.
-              </div>
-            )}
+                </thead>
+                <tbody>
+                  {clientes.map((c, i) => {
+                    const nLinha = (pagina - 1) * pageSize + i + 1;
+                    return (
+                      <tr key={c.id} className="border-b border-border/40 hover:bg-secondary/20">
+                        <td className="py-2 px-3 text-muted-foreground font-mono text-[10px] sticky left-0 bg-card">
+                          {nLinha}
+                        </td>
+                        <td className="py-2 px-3 font-semibold truncate max-w-[220px]" title={c.nome}>{c.nome}</td>
+                        <td className="py-2 px-3 font-mono text-muted-foreground whitespace-nowrap">{c.cpf}</td>
+                        <td className="py-2 px-3 font-mono text-muted-foreground whitespace-nowrap">
+                          {c.telefone ? (
+                            <a
+                              href={`https://wa.me/55${c.telefone.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:text-brand-cyan"
+                            >
+                              {c.telefone}
+                            </a>
+                          ) : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-muted-foreground truncate max-w-[200px]" title={c.email ?? ""}>
+                          {c.email ?? "—"}
+                        </td>
+                        <td className="py-2 px-3 text-muted-foreground text-[11px]">
+                          {c.genero ? c.genero.slice(0, 1) : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono">{c.compras_total_qtd}</td>
+                        <td className="py-2 px-3 text-right font-mono font-semibold">
+                          R$ {Number(c.compras_total_valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-2 px-3 text-muted-foreground text-[11px] whitespace-nowrap">
+                          {c.cadastrado_em ? new Date(c.cadastrado_em).toLocaleDateString("pt-BR") : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-muted-foreground text-[11px] whitespace-nowrap">
+                          {c.ultima_compra_em ? new Date(c.ultima_compra_em).toLocaleDateString("pt-BR") : "—"}
+                        </td>
+                        <td className="py-2 px-3 text-[10px]">
+                          <span
+                            className={
+                              c.origem_sistema === "maxlav"
+                                ? "px-1.5 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan font-semibold"
+                                : c.origem_sistema === "vm_tecnologia"
+                                ? "px-1.5 py-0.5 rounded bg-brand-purple/10 text-brand-purple font-semibold"
+                                : "px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                            }
+                          >
+                            {c.origem_sistema === "maxlav" ? "MAXLAV"
+                              : c.origem_sistema === "vm_tecnologia" ? "VM"
+                              : c.origem_sistema}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {clientes.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <div className="text-[13px] font-semibold">Nenhum cliente encontrado</div>
+                  <div className="text-[11px] mt-1">
+                    {filtrando ? "Ajuste ou limpe os filtros pra ver mais resultados." : "A base está vazia."}
+                  </div>
+                </div>
+              )}
+            </div>
+            <ClientesPaginacao
+              paginaAtual={pagina}
+              totalPaginas={totalPaginas}
+              totalRegistros={totalFiltrado}
+              pageSize={pageSize}
+            />
           </div>
-        </ChartCard>
+        </div>
       )}
 
       {/* Insights */}

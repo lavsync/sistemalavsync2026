@@ -52,9 +52,32 @@ function isMissingTable(err: unknown): boolean {
   return e.code === "PGRST205" || (e.message?.includes("Could not find the table") ?? false);
 }
 
+export type AtividadeFiltro = "todos" | "ativos90d" | "emrisco" | "dormentes" | "semcompra";
+export type OrigemFiltro = "todos" | "maxlav" | "vm_tecnologia" | "manual" | "api";
+export type GeneroFiltro = "todos" | "Masculino" | "Feminino" | "Outro";
+export type OrdenacaoFiltro =
+  | "ltv_desc"
+  | "ltv_asc"
+  | "compras_desc"
+  | "ultima_desc"
+  | "ultima_asc"
+  | "cadastro_desc"
+  | "cadastro_asc"
+  | "nome_asc";
+
+export type ListarClientesOpts = {
+  busca?: string;
+  limit?: number;
+  offset?: number;
+  atividade?: AtividadeFiltro;
+  origem?: OrigemFiltro;
+  genero?: GeneroFiltro;
+  ordenacao?: OrdenacaoFiltro;
+};
+
 export async function listarClientes(
   unidadeId: string,
-  opts?: { busca?: string; limit?: number; offset?: number },
+  opts?: ListarClientesOpts,
 ): Promise<{ rows: ClienteRow[]; total: number }> {
   const supabase = await createClient();
   let q = supabase
@@ -63,17 +86,77 @@ export async function listarClientes(
       "id, nome, cpf, email, telefone, data_nascimento, genero, cadastrado_em, ultima_compra_em, snapshot_em, compras_total_qtd, compras_total_valor, compras_90d_qtd, compras_90d_valor, compras_30d_qtd, compras_30d_valor, compras_7d_qtd, compras_7d_valor, origem_sistema, observacoes",
       { count: "exact" },
     )
-    .eq("unidade_id", unidadeId)
-    .order("compras_total_valor", { ascending: false, nullsFirst: false });
+    .eq("unidade_id", unidadeId);
 
+  // ─── Filtros ──────────────────────────────────────────────────────────────
   if (opts?.busca && opts.busca.trim()) {
     const b = opts.busca.trim();
-    // ilike em nome + telefone + email + cpf (dígitos)
     q = q.or(
       `nome.ilike.%${b}%,telefone.ilike.%${b}%,email.ilike.%${b}%,cpf.ilike.%${b}%`,
     );
   }
-  if (opts?.limit) q = q.range(opts.offset ?? 0, (opts.offset ?? 0) + opts.limit - 1);
+
+  if (opts?.origem && opts.origem !== "todos") {
+    q = q.eq("origem_sistema", opts.origem);
+  }
+
+  if (opts?.genero && opts.genero !== "todos") {
+    q = q.eq("genero", opts.genero);
+  }
+
+  // Atividade — usa cortes de tempo na coluna ultima_compra_em
+  if (opts?.atividade && opts.atividade !== "todos") {
+    const agora = Date.now();
+    const dia = 24 * 60 * 60 * 1000;
+    const iso = (ts: number) => new Date(ts).toISOString();
+
+    if (opts.atividade === "ativos90d") {
+      q = q.gte("ultima_compra_em", iso(agora - 90 * dia));
+    } else if (opts.atividade === "emrisco") {
+      // sem comprar entre 25 e 60 dias
+      q = q.gte("ultima_compra_em", iso(agora - 60 * dia))
+           .lte("ultima_compra_em", iso(agora - 25 * dia));
+    } else if (opts.atividade === "dormentes") {
+      // sem comprar há mais de 60 dias (não inclui "nunca comprou")
+      q = q.lt("ultima_compra_em", iso(agora - 60 * dia));
+    } else if (opts.atividade === "semcompra") {
+      q = q.is("ultima_compra_em", null);
+    }
+  }
+
+  // ─── Ordenação ────────────────────────────────────────────────────────────
+  switch (opts?.ordenacao ?? "ltv_desc") {
+    case "ltv_asc":
+      q = q.order("compras_total_valor", { ascending: true, nullsFirst: true });
+      break;
+    case "compras_desc":
+      q = q.order("compras_total_qtd", { ascending: false, nullsFirst: false });
+      break;
+    case "ultima_desc":
+      q = q.order("ultima_compra_em", { ascending: false, nullsFirst: false });
+      break;
+    case "ultima_asc":
+      q = q.order("ultima_compra_em", { ascending: true, nullsFirst: true });
+      break;
+    case "cadastro_desc":
+      q = q.order("cadastrado_em", { ascending: false, nullsFirst: false });
+      break;
+    case "cadastro_asc":
+      q = q.order("cadastrado_em", { ascending: true, nullsFirst: true });
+      break;
+    case "nome_asc":
+      q = q.order("nome", { ascending: true });
+      break;
+    case "ltv_desc":
+    default:
+      q = q.order("compras_total_valor", { ascending: false, nullsFirst: false });
+  }
+
+  // ─── Paginação ────────────────────────────────────────────────────────────
+  if (opts?.limit) {
+    const offset = opts.offset ?? 0;
+    q = q.range(offset, offset + opts.limit - 1);
+  }
 
   const { data, count, error } = await q;
   if (error) {
