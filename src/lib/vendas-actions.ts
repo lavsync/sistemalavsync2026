@@ -29,6 +29,7 @@ export type VendaPayload = {
   provedor: string | null;
   adquirente: string | null;
   tipo_servico: string;
+  quantidade_ciclos: number;
 };
 
 export type ImportVendasResult = {
@@ -168,6 +169,7 @@ export async function importarVendas(
       cupom_codigo: p.cupom_codigo,
       cupom_requisicao: p.cupom_requisicao,
       tipo_servico: p.tipo_servico,
+      quantidade_ciclos: p.quantidade_ciclos ?? 1,
       cpf: p.cpf,
       nome_cliente: p.nome_cliente,
       telefone_cliente: p.telefone_cliente,

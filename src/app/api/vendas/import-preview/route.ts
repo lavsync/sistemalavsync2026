@@ -37,24 +37,44 @@ export type VendaParsed = {
   provedor: string | null;
   adquirente: string | null;
   tipo_servico: TipoServico;
+  quantidade_ciclos: number;
   lavanderia_origem: string | null;
 };
 
-// Heurística inicial de ciclos (até MAXPAN API liberar a info real):
-// - R$ ~15 → lavagem (1 ciclo)
-// - R$ ~17 → secagem (1 ciclo)
-// - múltiplos exatos → combo/indefinido
-function inferirServico(valor: number, cupom: string | null): TipoServico {
+// Preços oficiais (atualizar quando mudar):
+const PRECO_LAVAGEM_ATUAL = 17.00;
+const PRECO_SECAGEM_ATUAL = 16.99;
+const PRECO_LAVAGEM_ANTIGO = 15.00;
+const PRECO_SECAGEM_ANTIGO = 14.99;
+
+// Detecta múltiplo exato (até 10 ciclos, tolerância R$ 0,01)
+function detectarMultiplo(valor: number, preco: number, max: number = 10): number {
+  for (let n = 1; n <= max; n++) {
+    if (Math.abs(valor - n * preco) < 0.005) return n;
+  }
+  return 0;
+}
+
+// Inferência (definida pelo Daniel 2026-06-05):
+// - Lavagem: R$ 17,00 (e múltiplos: 34, 51, ...) — também R$ 15,00 (preço antigo)
+// - Secagem: R$ 16,99 (e múltiplos: 33,98, 50,97, ...) — também R$ 14,99 (antigo)
+// - Cupom LAVAR* ou INAUGURA20 → lavagem (1 ciclo)
+// - Cupom SECAR* → secagem (1 ciclo)
+function inferirServicoECiclos(valor: number, cupom: string | null): { tipo: TipoServico; ciclos: number } {
   const c = (cupom ?? "").toUpperCase();
-  if (c.includes("LAVAR") || c === "INAUGURA20") return "lavagem";
-  if (c.includes("SECAR")) return "secagem";
-  // Pelo valor (faixa de tolerância R$ 1)
-  if (valor >= 14 && valor <= 15.5) return "lavagem";
-  if (valor >= 16 && valor <= 17.5) return "secagem";
-  // múltiplos
-  if (valor > 0 && valor % 15 === 0) return "lavagem";
-  if (valor > 0 && valor % 17 === 0) return "secagem";
-  return "indefinido";
+  if (c.startsWith("LAVAR") || c === "INAUGURA20") return { tipo: "lavagem", ciclos: 1 };
+  if (c.startsWith("SECAR")) return { tipo: "secagem", ciclos: 1 };
+
+  let n = detectarMultiplo(valor, PRECO_LAVAGEM_ATUAL);
+  if (n > 0) return { tipo: "lavagem", ciclos: n };
+  n = detectarMultiplo(valor, PRECO_SECAGEM_ATUAL);
+  if (n > 0) return { tipo: "secagem", ciclos: n };
+  n = detectarMultiplo(valor, PRECO_LAVAGEM_ANTIGO);
+  if (n > 0) return { tipo: "lavagem", ciclos: n };
+  n = detectarMultiplo(valor, PRECO_SECAGEM_ANTIGO);
+  if (n > 0) return { tipo: "secagem", ciclos: n };
+
+  return { tipo: "indefinido", ciclos: 1 };
 }
 
 function normalizeHeader(s: string): string {
@@ -283,7 +303,8 @@ export async function POST(req: NextRequest) {
         ? `(${telDig.slice(0, 2)}) ${telDig.slice(2, 6)}-${telDig.slice(6)}`
         : telBruto || null;
 
-    const servico = inferirServico(valorN, cupom);
+    const valorBase = Number(get("valor_sem_desconto")) || valorN;
+    const { tipo: servico, ciclos } = inferirServicoECiclos(valorBase, cupom);
 
     parsed.push({
       _linha: i + 1,
@@ -312,6 +333,7 @@ export async function POST(req: NextRequest) {
       provedor: toStr(get("provedor")) || null,
       adquirente: toStr(get("adquirente")) || null,
       tipo_servico: servico,
+      quantidade_ciclos: ciclos,
       lavanderia_origem: toStr(get("lavanderia_origem")) || null,
     });
 

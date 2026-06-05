@@ -61,14 +61,14 @@ export async function getResumoPerformance(unidadeId: string): Promise<ResumoPer
   const [vendasMes, vendasMesAnt, clientesAg, novosClientes, ultImp, baseVendas] = await Promise.all([
     supabase
       .from("vendas")
-      .select("valor, tipo_servico, tipo_pagamento, cupom_codigo, voucher_codigo")
+      .select("valor, tipo_servico, tipo_pagamento, cupom_codigo, voucher_codigo, quantidade_ciclos")
       .eq("unidade_id", unidadeId)
       .eq("situacao", "sucesso")
       .gte("data_venda", iniMes.toISOString())
       .lte("data_venda", fimMesAtual.toISOString()),
     supabase
       .from("vendas")
-      .select("valor, tipo_servico")
+      .select("valor, tipo_servico, quantidade_ciclos")
       .eq("unidade_id", unidadeId)
       .eq("situacao", "sucesso")
       .gte("data_venda", iniMesAnt.toISOString())
@@ -104,27 +104,30 @@ export async function getResumoPerformance(unidadeId: string): Promise<ResumoPer
     tipo_pagamento: string;
     cupom_codigo: string | null;
     voucher_codigo: string | null;
+    quantidade_ciclos: number | string;
   }>;
   const rowsMesAnt = (vendasMesAnt.data ?? []) as Array<{
     valor: number | string;
     tipo_servico: string;
+    quantidade_ciclos: number | string;
   }>;
 
   let faturamentoMes = 0, ciclosMes = 0, ciclosLavagem = 0, ciclosSecagem = 0;
   let cuponsQtd = 0, cuponsValor = 0, vouchersQtd = 0, vouchersValor = 0;
   for (const r of rowsMes) {
     const v = Number(r.valor) || 0;
+    const ciclos = Number(r.quantidade_ciclos) || 1;
     faturamentoMes += v;
-    ciclosMes += 1;
-    if (r.tipo_servico === "lavagem") ciclosLavagem += 1;
-    else if (r.tipo_servico === "secagem") ciclosSecagem += 1;
+    ciclosMes += ciclos;
+    if (r.tipo_servico === "lavagem") ciclosLavagem += ciclos;
+    else if (r.tipo_servico === "secagem") ciclosSecagem += ciclos;
     if (r.cupom_codigo) { cuponsQtd += 1; cuponsValor += v; }
     if (r.voucher_codigo) { vouchersQtd += 1; vouchersValor += v; }
   }
   let faturamentoMesAnterior = 0, ciclosMesAnterior = 0;
   for (const r of rowsMesAnt) {
     faturamentoMesAnterior += Number(r.valor) || 0;
-    ciclosMesAnterior += 1;
+    ciclosMesAnterior += Number(r.quantidade_ciclos) || 1;
   }
 
   const variacaoFaturamento =
