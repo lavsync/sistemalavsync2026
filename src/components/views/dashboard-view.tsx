@@ -2,7 +2,9 @@
 
 import {
   Activity, AlertCircle, ArrowRight, BarChart3, Clock, DollarSign,
-  ShoppingCart, TrendingUp, Users, Wallet, Wrench, Zap,
+  ShoppingCart, TrendingUp, TrendingDown, Users, Wallet, Wrench, Zap,
+  Crown, AlertTriangle, Sparkles, Calendar, Tag,
+  type LucideIcon,
 } from "lucide-react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { ChartCard, LegendDot } from "@/components/ui/chart-card";
@@ -17,6 +19,7 @@ import type {
   DashboardKpis, HourlyOccupationPoint, MachineRow, Periodo, RevenuePoint,
   RevenueSplitSlice, Unidade,
 } from "@/lib/dashboard/queries";
+import type { Insight, InsightIcone } from "@/lib/insights/engine";
 import { DashboardFilters } from "@/components/dashboard/filters";
 
 const fmtBRL = (v: number) =>
@@ -42,6 +45,12 @@ export type DashboardViewProps = {
   split: RevenueSplitSlice[];
   hourly: HourlyOccupationPoint[];
   machines: MachineRow[];
+  insights: Insight[];
+};
+
+const INSIGHT_ICON_MAP: Record<InsightIcone, LucideIcon> = {
+  Clock, TrendingDown, TrendingUp, Crown, AlertTriangle,
+  Wallet, Sparkles, Users, Calendar, Tag, DollarSign,
 };
 
 function saudacaoPorHora(): string {
@@ -53,7 +62,7 @@ function saudacaoPorHora(): string {
 
 export function DashboardView({
   unidades, unidadeAtiva, periodo, from, to, labelJanela,
-  kpis, timeseries, split, hourly, machines,
+  kpis, timeseries, split, hourly, machines, insights,
 }: DashboardViewProps) {
   const today = new Date();
   const hoje = fmtDateBR(today);
@@ -349,43 +358,58 @@ export function DashboardView({
         </ChartCard>
       )}
 
-      {/* INSIGHTS GRID */}
+      {/* INSIGHTS GRID — dinâmicos da CLOCK AI engine */}
       <div>
         <div className="flex items-end justify-between mb-3">
           <div>
-            <h3 className="font-display font-semibold text-base tracking-tight">Insights da CLOCK AI</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Análise contínua · {labelJanela}</p>
+            <h3 className="font-display font-semibold text-base tracking-tight inline-flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-brand-cyan" />
+              Insights da CLOCK AI
+              <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-brand-cyan/15 text-brand-cyan">
+                {insights.length} {insights.length === 1 ? "insight" : "insights"}
+              </span>
+            </h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Heurísticas sobre os últimos 90 dias · prioridade decrescente
+            </p>
           </div>
-          <Button variant="ghost" size="sm" className="text-xs h-7 text-brand-cyan">
-            Ver histórico <ArrowRight className="w-3 h-3 ml-1" />
-          </Button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          <InsightCard
-            severity="danger"
-            icon={Clock}
-            title="Janela ociosa entre 03h–05h custou R$ 1.890 em 30 dias"
-            body="Energia base + aluguel rateado nesta janela soma R$ 1,89/h sem retorno. CLOCK sugere reduzir iluminação ou automatizar standby de máquinas."
-            cta="Ver simulação de standby"
-          />
-          <InsightCard
-            severity="warn"
-            icon={Wallet}
-            title="Aluguel = 101% da receita líquida atual"
-            body="A R$ 4.000/mês, o aluguel sozinho consome toda a receita. Renegociação ou aumento de volume são as duas únicas alavancas reais."
-            cta="Modelar cenários"
-          />
-          <InsightCard
-            severity="info"
-            icon={BarChart3}
-            title="Mix premium pode adicionar R$ 2.400/mês"
-            body="Reposicionar secadoras 22kg como 'express premium' (+R$ 6/ciclo) tem absorção projetada de 78% baseada nos hábitos atuais."
-            cta="Criar plano de teste A/B"
-          />
-        </div>
+        {insights.length === 0 ? (
+          <div className="rounded-xl border-2 border-dashed border-border bg-muted/10 p-8 text-center">
+            <Sparkles className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+            <div className="text-[13px] font-semibold">Sem dados suficientes pra gerar insights</div>
+            <div className="text-[11px] text-muted-foreground mt-1">Importe planilhas de vendas em /performance</div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {insights.map((ins) => (
+              <InsightCard
+                key={ins.id}
+                severity={ins.severidade}
+                icon={INSIGHT_ICON_MAP[ins.icone] ?? Sparkles}
+                title={ins.titulo}
+                body={
+                  <>
+                    {ins.descricao}
+                    {ins.destaque && (
+                      <span className="block mt-1.5 font-mono font-bold text-[11px] text-foreground/85">
+                        {ins.destaque}
+                      </span>
+                    )}
+                  </>
+                }
+                cta={ins.acao_sugerida}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <Activity className="hidden" />
+      <Wrench className="hidden" />
+      <Zap className="hidden" />
+      <AlertCircle className="hidden" />
+      <BarChart3 className="hidden" />
     </div>
   );
 }

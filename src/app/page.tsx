@@ -10,6 +10,7 @@ import {
   resolverJanela,
   type Periodo,
 } from "@/lib/dashboard/queries";
+import { gerarInsightsUnidade } from "@/lib/insights/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -36,12 +37,13 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
 
   const janela = resolverJanela(periodo, params.from, params.to);
 
-  const [kpis, timeseries, split, hourly, machines] = await Promise.all([
+  const [kpis, timeseries, split, hourly, machines, insights] = await Promise.all([
     getDashboardKpis(unidadeAtiva, janela),
     getRevenueTimeseries(unidadeAtiva, janela),
     getRevenueSplit(unidadeAtiva, janela),
     getHourlyOccupation(unidadeAtiva, janela),
     getMachinesStatus(unidadeAtiva, janela),
+    gerarInsightsUnidade(unidadeAtiva).catch(() => []),
   ]);
 
   return (
@@ -58,6 +60,7 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
         split={split}
         hourly={hourly}
         machines={machines}
+        insights={insights}
       />
     </AppShell>
   );
