@@ -3,132 +3,96 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 /**
- * Apaga uma importação E todas as vendas que ela criou (via importacao_id).
- * Retorna a contagem de vendas removidas.
+ * Apaga uma importação de vendas. FK ON DELETE CASCADE (migration 0011) apaga
+ * todas as vendas com aquele importacao_id automaticamente no banco.
  */
 export async function excluirImportacao(id: string): Promise<{ vendasRemovidas: number }> {
   const sb = await createClient();
-  // Primeiro apaga vendas vinculadas
-  const { data: del, error: e1 } = await sb
+  // Conta antes pra retornar (após o delete, o cascade já apagou)
+  const { count } = await sb
     .from("vendas")
-    .delete({ count: "exact" })
-    .eq("importacao_id", id)
-    .select("id");
-  if (e1) throw e1;
-  const vendasRemovidas = (del?.length ?? 0);
+    .select("id", { count: "exact", head: true })
+    .eq("importacao_id", id);
+  const vendasRemovidas = count ?? 0;
 
-  const { error: e2 } = await sb.from("vendas_importacoes").delete().eq("id", id);
-  if (e2) throw e2;
+  const { error } = await sb.from("vendas_importacoes").delete().eq("id", id);
+  if (error) throw error;
 
-  revalidatePath("/performance/importacoes");
+  revalidatePath("/cadastros/importacoes");
   revalidatePath("/performance");
+  revalidatePath("/");
   return { vendasRemovidas };
 }
 
 /**
- * Zera TODAS as importações + vendas de uma unidade (uso pra reset completo).
+ * Zera TODAS as importações + vendas de uma unidade.
+ * Apenas DELETE em vendas_importacoes → cascade automático apaga vendas.
  */
 export async function zerarImportacoesUnidade(unidadeId: string): Promise<{ vendas: number; imports: number }> {
   const sb = await createClient();
-  const { data: dv } = await sb
+  const { count: vendasCount } = await sb
     .from("vendas")
-    .delete()
-    .eq("unidade_id", unidadeId)
-    .select("id");
+    .select("id", { count: "exact", head: true })
+    .eq("unidade_id", unidadeId);
   const { data: di } = await sb
     .from("vendas_importacoes")
     .delete()
     .eq("unidade_id", unidadeId)
     .select("id");
   revalidatePath("/cadastros/importacoes");
-  revalidatePath("/performance/importacoes");
   revalidatePath("/performance");
-  return { vendas: dv?.length ?? 0, imports: di?.length ?? 0 };
+  revalidatePath("/");
+  return { vendas: vendasCount ?? 0, imports: di?.length ?? 0 };
 }
 
 // ─── CLIENTES ───────────────────────────────────────────────────────
 /**
- * Exclui importação de clientes:
- * - apaga apenas clientes vinculados que NÃO têm compras (compras_total_qtd > 0 preserva)
- * - clientes preservados ficam com importacao_id = NULL
- * - apaga o log da importação
+ * Apaga uma importação de clientes. FK ON DELETE CASCADE (migration 0011) apaga
+ * os clientes vinculados. Vendas que referenciavam esses clientes ficam com
+ * cliente_id = NULL (FK vendas_cliente_id_fkey já tem ON DELETE SET NULL).
  */
 export async function excluirImportacaoClientes(id: string): Promise<{
   clientesRemovidos: number;
-  clientesPreservados: number;
 }> {
   const sb = await createClient();
-  // Apagar clientes sem compras
-  const { data: removidos, error: e1 } = await sb
+  const { count } = await sb
     .from("clientes")
-    .delete()
-    .eq("importacao_id", id)
-    .eq("compras_total_qtd", 0)
-    .select("id");
-  if (e1) throw e1;
-  // Desvincular os que ficaram (têm compras)
-  const { data: preservados, error: e2 } = await sb
-    .from("clientes")
-    .update({ importacao_id: null })
-    .eq("importacao_id", id)
-    .select("id");
-  if (e2) throw e2;
-  // Apagar o log
-  const { error: e3 } = await sb.from("clientes_importacoes").delete().eq("id", id);
-  if (e3) throw e3;
+    .select("id", { count: "exact", head: true })
+    .eq("importacao_id", id);
+  const clientesRemovidos = count ?? 0;
+
+  const { error } = await sb.from("clientes_importacoes").delete().eq("id", id);
+  if (error) throw error;
 
   revalidatePath("/cadastros/importacoes");
   revalidatePath("/clientes");
-  return {
-    clientesRemovidos: removidos?.length ?? 0,
-    clientesPreservados: preservados?.length ?? 0,
-  };
+  revalidatePath("/");
+  return { clientesRemovidos };
 }
 
 /**
- * Zera todas as importações de clientes de uma unidade. Igual ao acima mas em batch.
+ * Zera todas as importações de clientes de uma unidade. Cascade do banco apaga
+ * todos os clientes vinculados àquelas importações.
  */
 export async function zerarImportacoesClientesUnidade(unidadeId: string): Promise<{
   imports: number;
   clientesRemovidos: number;
-  clientesPreservados: number;
 }> {
   const sb = await createClient();
-  // Lista de imports
-  const { data: imps } = await sb
-    .from("clientes_importacoes")
-    .select("id")
-    .eq("unidade_id", unidadeId);
-  const ids = ((imps ?? []) as Array<{ id: string }>).map((x) => x.id);
+  const { count: clientesCount } = await sb
+    .from("clientes")
+    .select("id", { count: "exact", head: true })
+    .eq("unidade_id", unidadeId)
+    .not("importacao_id", "is", null);
 
-  let removidos = 0;
-  let preservados = 0;
-  if (ids.length > 0) {
-    // Apagar clientes sem compras vinculados a esses imports
-    const { data: dr } = await sb
-      .from("clientes")
-      .delete()
-      .in("importacao_id", ids)
-      .eq("compras_total_qtd", 0)
-      .select("id");
-    removidos = dr?.length ?? 0;
-    // Desvincular os que sobrevivem
-    const { data: dp } = await sb
-      .from("clientes")
-      .update({ importacao_id: null })
-      .in("importacao_id", ids)
-      .select("id");
-    preservados = dp?.length ?? 0;
-  }
-  // Apagar logs
   const { data: di } = await sb
     .from("clientes_importacoes")
     .delete()
     .eq("unidade_id", unidadeId)
     .select("id");
-  const imports = di?.length ?? 0;
 
   revalidatePath("/cadastros/importacoes");
   revalidatePath("/clientes");
-  return { imports, clientesRemovidos: removidos, clientesPreservados: preservados };
+  revalidatePath("/");
+  return { imports: di?.length ?? 0, clientesRemovidos: clientesCount ?? 0 };
 }

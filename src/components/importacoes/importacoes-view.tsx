@@ -90,9 +90,10 @@ export function ImportacoesView({
           <Database className="w-3.5 h-3.5 text-brand-cyan" /> Como funciona
         </div>
         <ul className="space-y-1 list-disc pl-4">
-          <li><strong>Vendas:</strong> ao excluir uma importação, todas as vendas criadas por ela são apagadas (cascade).</li>
-          <li><strong>Clientes:</strong> ao excluir, apaga apenas os clientes que NÃO têm compras vinculadas. Os que têm histórico ficam preservados (importacao_id vira NULL).</li>
-          <li>&quot;Zerar tudo da unidade&quot; aplica em massa com confirmação digitada (&quot;ZERAR&quot;).</li>
+          <li>FK no banco com <strong>ON DELETE CASCADE</strong> — apagar planilha aqui propaga a deleção pra todos os módulos automaticamente.</li>
+          <li><strong>Vendas:</strong> excluir importação apaga todas as vendas dela (Performance/Visão Geral/Financeiro perdem esses dados).</li>
+          <li><strong>Clientes:</strong> excluir importação apaga todos os clientes criados por ela. Vendas que referenciavam esses clientes ficam sem nome (cliente_id NULL).</li>
+          <li>&quot;Zerar tudo da unidade&quot; aplica em massa com dupla confirmação (alerta + digitar &quot;ZERAR NOMEUNIDADE&quot;).</li>
         </ul>
       </div>
     </div>
@@ -143,19 +144,23 @@ function TabelaImportacoes({
   async function onExcluir(imp: AnyRow) {
     let txt: string;
     if (isVenda(imp)) {
-      txt = `Excluir esta importação de VENDAS?\n\nArquivo: ${imp.arquivo_nome}\nUnidade: ${imp.unidade_nome}\nVendas que serão APAGADAS: ${imp.vendas_atualmente}\n\nIRREVERSÍVEL.`;
+      txt = `Excluir esta importação de VENDAS?\n\nArquivo: ${imp.arquivo_nome}\nUnidade: ${imp.unidade_nome}\nVendas que serão APAGADAS: ${imp.vendas_atualmente}\n\nCascade no banco · IRREVERSÍVEL.`;
     } else {
-      txt = `Excluir esta importação de CLIENTES?\n\nArquivo: ${imp.arquivo_nome}\nUnidade: ${imp.unidade_nome}\nClientes vinculados: ${imp.clientes_atualmente}\n  └ Com compras (preservados): ${imp.clientes_com_venda}\n  └ Sem compras (serão apagados): ${imp.clientes_atualmente - imp.clientes_com_venda}\n\nClientes com histórico de compras ficam, só perdem o vínculo com essa importação.`;
+      const comVenda = imp.clientes_com_venda;
+      const alerta = comVenda > 0
+        ? `\n\n⚠ ${comVenda} desses clientes têm compras. Ao apagar, as vendas continuam existindo mas ficam SEM nome do cliente vinculado.`
+        : "";
+      txt = `Excluir esta importação de CLIENTES?\n\nArquivo: ${imp.arquivo_nome}\nUnidade: ${imp.unidade_nome}\nClientes que serão APAGADOS: ${imp.clientes_atualmente}${alerta}\n\nCascade no banco · IRREVERSÍVEL.`;
     }
     if (!confirm(txt)) return;
     setExcluindo(imp.id);
     try {
       if (isVenda(imp)) {
         const r = await excluirImportacao(imp.id);
-        alert(`Removida. ${r.vendasRemovidas} vendas apagadas.`);
+        alert(`Removida. ${r.vendasRemovidas} vendas apagadas (cascade).`);
       } else {
         const r = await excluirImportacaoClientes(imp.id);
-        alert(`Removida. ${r.clientesRemovidos} clientes apagados, ${r.clientesPreservados} preservados (com compras).`);
+        alert(`Removida. ${r.clientesRemovidos} clientes apagados (cascade).`);
       }
     } catch (e) {
       alert("Erro: " + (e instanceof Error ? e.message : String(e)));
@@ -182,10 +187,10 @@ function TabelaImportacoes({
     try {
       if (tipo === "vendas") {
         const out = await zerarImportacoesUnidade(unidadeId);
-        alert(`Zerado: ${out.imports} importações e ${out.vendas} vendas apagadas.`);
+        alert(`Zerado: ${out.imports} importações e ${out.vendas} vendas apagadas (cascade).`);
       } else {
         const out = await zerarImportacoesClientesUnidade(unidadeId);
-        alert(`Zerado: ${out.imports} importações · ${out.clientesRemovidos} clientes apagados · ${out.clientesPreservados} preservados (com compras).`);
+        alert(`Zerado: ${out.imports} importações e ${out.clientesRemovidos} clientes apagados (cascade).`);
       }
     } catch (e) {
       alert("Erro: " + (e instanceof Error ? e.message : String(e)));
