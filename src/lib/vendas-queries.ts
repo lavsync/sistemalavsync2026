@@ -367,8 +367,8 @@ export type CupomUso = {
 
 export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise<CupomUso[]> {
   const supabase = await createClient();
-  // Se refMes não foi especificado, ancorar no mês da última venda registrada
-  // (evita lista vazia quando a base está atrasada). Resolve Castelo/Cabral.
+  // Se refMes não foi especificado, ancorar no mês do ÚLTIMO USO de cupom
+  // (não no mês da última venda — Castelo tem vendas até 05/26 mas cupons só até 10/25).
   let refReal = refMes;
   if (!refReal) {
     const { data: ult } = await supabase
@@ -376,6 +376,7 @@ export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise
       .select("data_venda")
       .eq("unidade_id", unidadeId)
       .eq("situacao", "sucesso")
+      .not("cupom_codigo", "is", null)
       .order("data_venda", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -420,6 +421,7 @@ export type VoucherUso = {
 
 export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promise<VoucherUso[]> {
   const supabase = await createClient();
+  // Mesma lógica do cupom: ancorar no mês do ÚLTIMO USO de voucher.
   let refReal = refMes;
   if (!refReal) {
     const { data: ult } = await supabase
@@ -427,6 +429,7 @@ export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promi
       .select("data_venda")
       .eq("unidade_id", unidadeId)
       .eq("situacao", "sucesso")
+      .not("voucher_codigo", "is", null)
       .order("data_venda", { ascending: false })
       .limit(1)
       .maybeSingle();
