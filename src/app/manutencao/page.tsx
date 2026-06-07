@@ -1,23 +1,27 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { ModulePlaceholder } from "@/components/views/module-placeholder";
+import { ManutencaoView } from "@/components/manutencao/manutencao-view";
+import { listarMaquinas, detectarEquipamentosNaoCadastrados } from "@/lib/manutencao/queries";
+import { listarUnidades, getUnidadeAtiva } from "@/lib/unidade-ativa";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const [maquinas, unidades, unidadeAtiva] = await Promise.all([
+    listarMaquinas(),
+    listarUnidades(),
+    getUnidadeAtiva(),
+  ]);
+  const equipamentosNaoCadastrados = unidadeAtiva
+    ? await detectarEquipamentosNaoCadastrados(unidadeAtiva.id)
+    : [];
+
   return (
     <AppShell>
-      <ModulePlaceholder
-        eyebrow="Manutenção"
-        title="Saúde técnica das máquinas"
-        subtitle="Lista de máquinas, status, preventiva, corretiva, histórico de ocorrências e custos · alertas técnicos da CLOCK."
-        iconName="wrench"
-        components={[
-          "Lista de máquinas",
-          "Status por máquina",
-          "Manutenção preventiva",
-          "Manutenção corretiva",
-          "Histórico de ocorrências",
-          "Custos de manutenção",
-          "Alertas técnicos",
-        ]}
+      <ManutencaoView
+        maquinas={maquinas}
+        unidades={unidades}
+        equipamentosNaoCadastrados={equipamentosNaoCadastrados}
+        unidadeAtivaId={unidadeAtiva?.id ?? unidades[0]?.id ?? ""}
       />
     </AppShell>
   );
