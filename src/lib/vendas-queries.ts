@@ -365,7 +365,9 @@ export type CupomUso = {
   desconto: number;
 };
 
-export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise<CupomUso[]> {
+export type CuponsUsadosResult = { items: CupomUso[]; mesRef: string | null };
+
+export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise<CuponsUsadosResult> {
   const supabase = await createClient();
   // Se refMes não foi especificado, ancorar no mês do ÚLTIMO USO de cupom
   // (não no mês da última venda — Castelo tem vendas até 05/26 mas cupons só até 10/25).
@@ -382,6 +384,7 @@ export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise
       .maybeSingle();
     refReal = ult?.data_venda ? new Date(ult.data_venda as string) : new Date();
   }
+  const mesRef = `${refReal.getFullYear()}-${String(refReal.getMonth() + 1).padStart(2, "0")}`;
   const q = supabase
     .from("vendas")
     .select("cupom_codigo, valor, valor_sem_desconto")
@@ -392,7 +395,7 @@ export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise
     .lte("data_venda", fimMes(refReal).toISOString());
   const { data, error } = await q;
   if (error) {
-    if (isMissingTable(error)) return [];
+    if (isMissingTable(error)) return { items: [], mesRef: null };
     throw error;
   }
   const buckets = new Map<string, { qtd: number; valor: number; desconto: number }>();
@@ -406,9 +409,10 @@ export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise
     cur.desconto += Math.max(0, vsd - v);
     buckets.set(r.cupom_codigo, cur);
   }
-  return Array.from(buckets.entries())
+  const items = Array.from(buckets.entries())
     .map(([codigo, b]) => ({ codigo, qtd: b.qtd, valor: round2(b.valor), desconto: round2(b.desconto) }))
     .sort((a, b) => b.qtd - a.qtd);
+  return { items, mesRef: items.length > 0 ? mesRef : null };
 }
 
 // ─── Vouchers usados (lista) ─────────────────────────────────────────────────
@@ -419,7 +423,9 @@ export type VoucherUso = {
   valor: number;
 };
 
-export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promise<VoucherUso[]> {
+export type VouchersUsadosResult = { items: VoucherUso[]; mesRef: string | null };
+
+export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promise<VouchersUsadosResult> {
   const supabase = await createClient();
   // Mesma lógica do cupom: ancorar no mês do ÚLTIMO USO de voucher.
   let refReal = refMes;
@@ -435,6 +441,7 @@ export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promi
       .maybeSingle();
     refReal = ult?.data_venda ? new Date(ult.data_venda as string) : new Date();
   }
+  const mesRef = `${refReal.getFullYear()}-${String(refReal.getMonth() + 1).padStart(2, "0")}`;
   const q = supabase
     .from("vendas")
     .select("voucher_codigo, voucher_categoria, valor")
@@ -445,7 +452,7 @@ export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promi
     .lte("data_venda", fimMes(refReal).toISOString());
   const { data, error } = await q;
   if (error) {
-    if (isMissingTable(error)) return [];
+    if (isMissingTable(error)) return { items: [], mesRef: null };
     throw error;
   }
   const buckets = new Map<string, { categoria: string | null; qtd: number; valor: number }>();
@@ -455,7 +462,8 @@ export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promi
     cur.valor += Number(r.valor) || 0;
     buckets.set(r.voucher_codigo, cur);
   }
-  return Array.from(buckets.entries())
+  const items = Array.from(buckets.entries())
     .map(([codigo, b]) => ({ codigo, categoria: b.categoria, qtd: b.qtd, valor: round2(b.valor) }))
     .sort((a, b) => b.qtd - a.qtd);
+  return { items, mesRef: items.length > 0 ? mesRef : null };
 }

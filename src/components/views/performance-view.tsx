@@ -26,8 +26,17 @@ function fmtBRL(n: number): string {
   return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+const MES_ABBR = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+function fmtMesRef(mesRef: string | null): string {
+  if (!mesRef) return "";
+  const m = /^(\d{4})-(\d{2})$/.exec(mesRef);
+  if (!m) return "";
+  return `${MES_ABBR[Number(m[2]) - 1]}/${m[1].slice(2)}`;
+}
+
 export function PerformanceView({
-  unidadeId, unidadeNome, resumo, pagamentos, diaSemana, evolucao, cupons, vouchers,
+  unidadeId, unidadeNome, resumo, pagamentos, diaSemana, evolucao,
+  cupons, cuponsMesRef, vouchers, vouchersMesRef,
 }: {
   unidadeId: string;
   unidadeNome: string;
@@ -36,7 +45,9 @@ export function PerformanceView({
   diaSemana: DiaSemanaPoint[];
   evolucao: EvolucaoMensalPoint[];
   cupons: CupomUso[];
+  cuponsMesRef: string | null;
   vouchers: VoucherUso[];
+  vouchersMesRef: string | null;
 }) {
   const [importOpen, setImportOpen] = React.useState(false);
   const baseVazia = resumo.totalVendasBase === 0;
@@ -194,7 +205,7 @@ export function PerformanceView({
           {(cupons.length > 0 || vouchers.length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {cupons.length > 0 && (
-                <ChartCard title="Cupons usados · mês"
+                <ChartCard title={`Cupons usados${cuponsMesRef ? ` · ${fmtMesRef(cuponsMesRef)}` : " · mês"}`}
                   subtitle={`${cupons.reduce((s, c) => s + c.qtd, 0)} usos · ${fmtBRL(cupons.reduce((s, c) => s + c.desconto, 0))} em descontos`}>
                   <table className="w-full text-xs">
                     <thead>
@@ -219,7 +230,7 @@ export function PerformanceView({
                 </ChartCard>
               )}
               {vouchers.length > 0 && (
-                <ChartCard title="Vouchers usados · mês"
+                <ChartCard title={`Vouchers usados${vouchersMesRef ? ` · ${fmtMesRef(vouchersMesRef)}` : " · mês"}`}
                   subtitle={`${vouchers.reduce((s, v) => s + v.qtd, 0)} usos · ${fmtBRL(vouchers.reduce((s, v) => s + v.valor, 0))} em cortesias`}>
                   <table className="w-full text-xs">
                     <thead>

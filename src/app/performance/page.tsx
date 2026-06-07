@@ -43,8 +43,10 @@ export default async function Page({
         pagamentos={pagamentos}
         diaSemana={diaSemana}
         evolucao={evolucao}
-        cupons={cupons}
-        vouchers={vouchers}
+        cupons={cupons.items}
+        cuponsMesRef={cupons.mesRef}
+        vouchers={vouchers.items}
+        vouchersMesRef={vouchers.mesRef}
       />
     </AppShell>
   );
