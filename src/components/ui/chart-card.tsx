@@ -34,7 +34,7 @@ export function ChartCard({
 
       {legend && <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-3">{legend}</div>}
 
-      <div className="flex-1 min-h-0" style={{ minHeight: height }}>
+      <div className="w-full" style={{ height }}>
         {children}
       </div>
     </section>
