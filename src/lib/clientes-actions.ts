@@ -163,7 +163,9 @@ export async function importarClientes(
   let semMudanca = 0;
   let ignorados = 0;
 
-  const modo: ImportMode = meta.modo ?? "upsert";
+  // Default = "sync": preserva cadastrado_em mais antigo + enriquece campos nulos.
+  // "upsert" sobrescreve tudo (perigoso quando a planilha não tem todos os campos).
+  const modo: ImportMode = meta.modo ?? "sync";
 
   const CHUNK = 100;
   for (let i = 0; i < linhasValidas.length; i += CHUNK) {

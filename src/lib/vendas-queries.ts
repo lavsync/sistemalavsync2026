@@ -252,22 +252,30 @@ const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 export async function getPorDiaSemana(
   unidadeId: string,
-  refMes?: Date,
-  diasFallback: number = 30,
+  _refMes?: Date,                  // ignorado — subtítulo diz "últimos 30d"
+  diasJanela: number = 30,
 ): Promise<DiaSemanaPoint[]> {
   const supabase = await createClient();
-  let q = supabase
+  // Âncora = última venda registrada (evita janela vazia quando a base não está em tempo real).
+  // Se não houver venda, cai no fallback de "agora".
+  const { data: ultimaVenda } = await supabase
+    .from("vendas")
+    .select("data_venda")
+    .eq("unidade_id", unidadeId)
+    .eq("situacao", "sucesso")
+    .order("data_venda", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const ancora = ultimaVenda?.data_venda ? new Date(ultimaVenda.data_venda as string) : new Date();
+  const ate = new Date(ancora);
+  const desde = new Date(ancora.getTime() - diasJanela * 24 * 60 * 60 * 1000);
+  const q = supabase
     .from("vendas")
     .select("data_venda, valor, cpf")
     .eq("unidade_id", unidadeId)
-    .eq("situacao", "sucesso");
-  if (refMes) {
-    q = q.gte("data_venda", inicioMes(refMes).toISOString())
-         .lte("data_venda", fimMes(refMes).toISOString());
-  } else {
-    const desde = new Date(Date.now() - diasFallback * 24 * 60 * 60 * 1000);
-    q = q.gte("data_venda", desde.toISOString());
-  }
+    .eq("situacao", "sucesso")
+    .gte("data_venda", desde.toISOString())
+    .lte("data_venda", ate.toISOString());
   const { data, error } = await q;
   if (error) {
     if (isMissingTable(error)) return [];
@@ -300,8 +308,17 @@ const MESES_ABBR = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set
 
 export async function getEvolucaoMensal(unidadeId: string, meses: number = 12): Promise<EvolucaoMensalPoint[]> {
   const supabase = await createClient();
-  const hoje = new Date();
-  const inicio = new Date(hoje.getFullYear(), hoje.getMonth() - (meses - 1), 1);
+  // Âncora = mês da última venda (evita exibir meses futuros sem dados).
+  const { data: ultima } = await supabase
+    .from("vendas")
+    .select("data_venda")
+    .eq("unidade_id", unidadeId)
+    .eq("situacao", "sucesso")
+    .order("data_venda", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const ancora = ultima?.data_venda ? new Date(ultima.data_venda as string) : new Date();
+  const inicio = new Date(ancora.getFullYear(), ancora.getMonth() - (meses - 1), 1);
   const { data, error } = await supabase
     .from("vendas")
     .select("data_venda, valor, cpf")
@@ -324,7 +341,7 @@ export async function getEvolucaoMensal(unidadeId: string, meses: number = 12): 
   }
   const out: EvolucaoMensalPoint[] = [];
   for (let i = 0; i < meses; i++) {
-    const d = new Date(hoje.getFullYear(), hoje.getMonth() - (meses - 1 - i), 1);
+    const d = new Date(ancora.getFullYear(), ancora.getMonth() - (meses - 1 - i), 1);
     const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
     const b = buckets.get(k);
     out.push({

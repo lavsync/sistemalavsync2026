@@ -588,47 +588,94 @@ export async function getNovosClientes(
 
 export type CrescimentoSemanal = { semana: string; novos: number; recorrentes: number };
 
+/**
+ * Novos vs Recorrentes por semana — derivado da tabela `vendas`.
+ * - "novo" na semana N = cliente cuja PRIMEIRA venda de todos os tempos caiu em N
+ * - "recorrente" na semana N = cliente que comprou em N e já tinha comprado antes
+ * Chave do cliente = cliente_id (preferencial) ou CPF (fallback pra vendas sem vínculo).
+ */
 export async function getCrescimentoSemanal(
   unidadeId: string,
   semanas: number = 12,
 ): Promise<CrescimentoSemanal[]> {
   const supabase = await createClient();
+
+  // Janela: início = início da semana ISO (segunda) há (semanas-1) semanas
+  const agora = new Date();
+  const inicioSemAtual = new Date(agora);
+  const diaSemana = (inicioSemAtual.getDay() + 6) % 7; // segunda = 0
+  inicioSemAtual.setDate(inicioSemAtual.getDate() - diaSemana);
+  inicioSemAtual.setHours(0, 0, 0, 0);
+
+  const inicioJanela = new Date(inicioSemAtual);
+  inicioJanela.setDate(inicioJanela.getDate() - (semanas - 1) * 7);
+
+  // Buscar TODAS as vendas concluídas da unidade (até agora) p/ identificar primeira compra histórica
   const { data, error } = await supabase
-    .from("clientes")
-    .select("cadastrado_em, ultima_compra_em")
-    .eq("unidade_id", unidadeId);
+    .from("vendas")
+    .select("cliente_id, cpf, data_venda")
+    .eq("unidade_id", unidadeId)
+    .eq("situacao", "sucesso");
   if (error) {
     if (isMissingTable(error)) return [];
     throw error;
   }
+  type V = { cliente_id: string | null; cpf: string | null; data_venda: string };
+  const rows = (data ?? []) as V[];
 
-  const rows = (data ?? []) as Array<{
-    cadastrado_em: string | null;
-    ultima_compra_em: string | null;
-  }>;
+  // Mapa: chave_cliente -> data da primeira venda (sempre)
+  const primeira = new Map<string, Date>();
+  for (const r of rows) {
+    const k = r.cliente_id || r.cpf;
+    if (!k) continue;
+    const d = new Date(r.data_venda);
+    const cur = primeira.get(k);
+    if (!cur || d < cur) primeira.set(k, d);
+  }
 
-  const agora = new Date();
-  const inicioSemAtual = new Date(agora);
-  inicioSemAtual.setDate(inicioSemAtual.getDate() - inicioSemAtual.getDay()); // Dom
-  inicioSemAtual.setHours(0, 0, 0, 0);
+  // Helper: início da semana ISO (segunda) para uma data
+  function inicioSemana(d: Date): Date {
+    const x = new Date(d);
+    const ds = (x.getDay() + 6) % 7;
+    x.setDate(x.getDate() - ds);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  }
 
-  const buckets: CrescimentoSemanal[] = [];
-  for (let i = semanas - 1; i >= 0; i--) {
-    const inicio = new Date(inicioSemAtual);
-    inicio.setDate(inicio.getDate() - i * 7);
-    const fim = new Date(inicio);
-    fim.setDate(fim.getDate() + 7);
-    const label = `${inicio.getDate().toString().padStart(2, "0")}/${(inicio.getMonth() + 1).toString().padStart(2, "0")}`;
+  // Por semana: conjuntos de chaves que aparecem como novos / recorrentes
+  const novosPorSem = new Map<number, Set<string>>();
+  const recPorSem = new Map<number, Set<string>>();
 
-    let novos = 0;
-    let recorrentes = 0;
-    for (const r of rows) {
-      const cad = r.cadastrado_em ? new Date(r.cadastrado_em) : null;
-      const ult = r.ultima_compra_em ? new Date(r.ultima_compra_em) : null;
-      if (cad && cad >= inicio && cad < fim) novos += 1;
-      if (ult && ult >= inicio && ult < fim && (!cad || cad < inicio)) recorrentes += 1;
+  for (const r of rows) {
+    const d = new Date(r.data_venda);
+    if (d < inicioJanela) continue;
+    const k = r.cliente_id || r.cpf;
+    if (!k) continue;
+    const semIni = inicioSemana(d).getTime();
+    const pri = primeira.get(k);
+    if (!pri) continue;
+    const semIniPri = inicioSemana(pri).getTime();
+    if (semIni === semIniPri) {
+      if (!novosPorSem.has(semIni)) novosPorSem.set(semIni, new Set());
+      novosPorSem.get(semIni)!.add(k);
+    } else {
+      if (!recPorSem.has(semIni)) recPorSem.set(semIni, new Set());
+      recPorSem.get(semIni)!.add(k);
     }
-    buckets.push({ semana: label, novos, recorrentes });
+  }
+
+  // Montar buckets ordenados (mais antiga à esquerda)
+  const buckets: CrescimentoSemanal[] = [];
+  for (let i = 0; i < semanas; i++) {
+    const inicio = new Date(inicioJanela);
+    inicio.setDate(inicio.getDate() + i * 7);
+    const key = inicio.getTime();
+    const label = `${String(inicio.getDate()).padStart(2, "0")}/${String(inicio.getMonth() + 1).padStart(2, "0")}`;
+    buckets.push({
+      semana: label,
+      novos: novosPorSem.get(key)?.size ?? 0,
+      recorrentes: recPorSem.get(key)?.size ?? 0,
+    });
   }
   return buckets;
 }

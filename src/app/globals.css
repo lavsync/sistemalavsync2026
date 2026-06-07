@@ -491,6 +491,72 @@
     0 8px 28px -8px rgba(25, 199, 203, 0.45);
 }
 
+/* ============ FINANCEIRO · animações premium ============ */
+.fin-hero {
+  background:
+    radial-gradient(circle at 20% 30%, rgba(25,199,203,0.15), transparent 60%),
+    radial-gradient(circle at 80% 70%, rgba(15,133,154,0.18), transparent 60%),
+    linear-gradient(135deg, #01385B 0%, #022941 50%, #011D31 100%);
+  position: relative;
+  overflow: hidden;
+}
+.fin-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(40px);
+  pointer-events: none;
+  opacity: 0.5;
+  animation: fin-float 18s ease-in-out infinite;
+}
+.fin-orb-1 { width: 280px; height: 280px; background: #19C7CB; top: -40px; left: 10%; animation-delay: 0s; }
+.fin-orb-2 { width: 220px; height: 220px; background: #73D8D8; bottom: -60px; right: 15%; animation-delay: -6s; }
+.fin-orb-3 { width: 180px; height: 180px; background: #0F859A; top: 30%; right: 35%; animation-delay: -12s; }
+
+@keyframes fin-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%      { transform: translate3d(40px, -30px, 0) scale(1.1); }
+  66%      { transform: translate3d(-30px, 40px, 0) scale(0.95); }
+}
+
+.fin-glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    0 12px 40px -12px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.fin-card-lift {
+  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 380ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.fin-card-lift:hover {
+  transform: translateY(-7px);
+  box-shadow:
+    0 28px 60px -20px rgba(25, 199, 203, 0.35),
+    0 12px 40px -12px rgba(0,0,0,0.5);
+}
+
+@keyframes fin-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.fin-shimmer {
+  background-image: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  background-size: 200% 100%;
+  animation: fin-shimmer 2.4s linear infinite;
+}
+
+@keyframes fin-fadeup {
+  0%   { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.fin-fadeup-1 { animation: fin-fadeup 480ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 0ms;  }
+.fin-fadeup-2 { animation: fin-fadeup 480ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 80ms; }
+.fin-fadeup-3 { animation: fin-fadeup 480ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 160ms;}
+.fin-fadeup-4 { animation: fin-fadeup 480ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 240ms;}
+
 /* ============ LEGAL PROSE (LGPD / Termos / Cookies) ============ */
 .legal-prose {
   color: rgba(255, 255, 255, 0.78);

@@ -18,7 +18,7 @@ export const NAVIGATION: NavItem[] = [
 
   // OPERACIONAL
   { label: "Painel ao Vivo", href: "/painel-ao-vivo", group: "operacional", badge: "LIVE", accent: true },
-  { label: "Financeiro", href: "/resultados", group: "operacional" },
+  { label: "Financeiro", href: "/financeiro", group: "operacional" },
   { label: "Clientes", href: "/clientes", group: "operacional" },
   { label: "Marketing", href: "/publicidade", group: "operacional" },
   { label: "Agenda", href: "/agenda", group: "operacional" },
