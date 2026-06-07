@@ -26,7 +26,8 @@ export async function excluirImportacao(id: string): Promise<{ vendasRemovidas: 
 
 /**
  * Zera TODAS as importações + vendas de uma unidade.
- * Apenas DELETE em vendas_importacoes → cascade automático apaga vendas.
+ * 1. Apaga as importações (cascade apaga vendas com importacao_id)
+ * 2. Apaga vendas "órfãs" (sem importacao_id) da unidade pra garantir limpeza total
  */
 export async function zerarImportacoesUnidade(unidadeId: string): Promise<{ vendas: number; imports: number }> {
   const sb = await createClient();
@@ -39,6 +40,11 @@ export async function zerarImportacoesUnidade(unidadeId: string): Promise<{ vend
     .delete()
     .eq("unidade_id", unidadeId)
     .select("id");
+  // Apagar vendas órfãs remanescentes (sem importacao_id) da mesma unidade
+  await sb.from("vendas")
+    .delete()
+    .eq("unidade_id", unidadeId)
+    .is("importacao_id", null);
   revalidatePath("/cadastros/importacoes");
   revalidatePath("/performance");
   revalidatePath("/");
@@ -71,28 +77,33 @@ export async function excluirImportacaoClientes(id: string): Promise<{
 }
 
 /**
- * Zera todas as importações de clientes de uma unidade. Cascade do banco apaga
- * todos os clientes vinculados àquelas importações.
+ * Zera todas as importações de clientes de uma unidade.
+ * 1. Apaga importações (cascade apaga clientes vinculados via importacao_id)
+ * 2. Apaga clientes "órfãos" (sem importacao_id) da mesma unidade pra limpeza total
  */
 export async function zerarImportacoesClientesUnidade(unidadeId: string): Promise<{
   imports: number;
   clientesRemovidos: number;
 }> {
   const sb = await createClient();
-  const { count: clientesCount } = await sb
+  const { count: clientesAntes } = await sb
     .from("clientes")
     .select("id", { count: "exact", head: true })
-    .eq("unidade_id", unidadeId)
-    .not("importacao_id", "is", null);
+    .eq("unidade_id", unidadeId);
 
   const { data: di } = await sb
     .from("clientes_importacoes")
     .delete()
     .eq("unidade_id", unidadeId)
     .select("id");
+  // Apagar clientes órfãos remanescentes (sem importacao_id) da mesma unidade
+  await sb.from("clientes")
+    .delete()
+    .eq("unidade_id", unidadeId)
+    .is("importacao_id", null);
 
   revalidatePath("/cadastros/importacoes");
   revalidatePath("/clientes");
   revalidatePath("/");
-  return { imports: di?.length ?? 0, clientesRemovidos: clientesCount ?? 0 };
+  return { imports: di?.length ?? 0, clientesRemovidos: clientesAntes ?? 0 };
 }
