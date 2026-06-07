@@ -1,25 +1,14 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { ModulePlaceholder } from "@/components/views/module-placeholder";
+import { DadosView } from "@/components/dados/dados-view";
+import { listarUnidades } from "@/lib/unidade-ativa";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const unidades = await listarUnidades();
   return (
     <AppShell>
-      <ModulePlaceholder
-        eyebrow="Dados Gerais"
-        title="Dados estruturais e metas"
-        subtitle="Dados da unidade, metas mensais, capacidade operacional, horários, máquinas e projeções."
-        iconName="database"
-        components={[
-          "Dados da unidade",
-          "Metas mensais",
-          "Capacidade operacional",
-          "Horário de funcionamento",
-          "Quantidade de máquinas",
-          "Ticket médio esperado",
-          "Custos previstos",
-          "Projeções",
-        ]}
-      />
+      <DadosView unidades={unidades} />
     </AppShell>
   );
 }
