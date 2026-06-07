@@ -31,6 +31,36 @@ import {
   salvarCustoFixo, deletarCustoFixo,
   salvarCustoVariavel, deletarCustoVariavel,
 } from "@/lib/financeiro/actions";
+import { LancarDespesasDialog } from "./lancar-despesas-dialog";
+
+// Lookup de despesa real pra um custo (fixo ou variável) por nome.
+// Tenta match exato por descrição, depois match por sinônimo de categoria.
+const SINONIMOS_DESPESA: Record<string, string[]> = {
+  "aluguel":          ["aluguel", "aluguel e iptu", "iptu"],
+  "energia eletrica": ["energia", "energia eletrica", "luz", "energia elétrica"],
+  "agua e esgoto":    ["agua", "agua e esgoto", "água", "água e esgoto"],
+  "internet":         ["telefone e internet", "telefone", "internet", "telecom"],
+  "marketing":        ["marketing", "publicidade", "publicidade local", "propaganda", "fundo de propaganda", "marketing inaugural"],
+  "manutencao":       ["manutencao", "manutenção", "reparos"],
+  "produtos quimicos": ["sabao", "amaciante", "csp", "sabao e amaciante", "produtos quimicos", "produtos químicos"],
+  "impostos":         ["impostos", "simples nacional", "iss", "icms"],
+  "folha de pagamento": ["folha", "salarios", "salário", "folha de pagamento"],
+};
+function normTxt(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+function mapearDespesaReal(custoDescricao: string, dm: DespesasMesData): number | null {
+  const n = normTxt(custoDescricao);
+  if (dm.por_descricao[n] != null) return dm.por_descricao[n];
+  for (const [catKey, sins] of Object.entries(SINONIMOS_DESPESA)) {
+    for (const sin of sins) {
+      if (n.includes(sin) && dm.por_categoria[catKey] != null) {
+        return dm.por_categoria[catKey];
+      }
+    }
+  }
+  return null;
+}
 
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -43,6 +73,24 @@ const fmtBRLk = (n: number) =>
 
 type Unidade = { id: string; nome: string };
 
+export type DespesaItem = {
+  id: string;
+  categoria_nome: string;
+  descricao: string;
+  valor: number;
+  vencimento: string;
+  pago_em: string | null;
+};
+
+export type DespesasMesData = {
+  ano: number;
+  mes: number;
+  itens: DespesaItem[];
+  por_categoria: Record<string, number>;   // chave normalizada → soma
+  por_descricao: Record<string, number>;   // chave normalizada → soma
+  total: number;
+};
+
 export type FinanceiroData = {
   unidades: Unidade[];
   unidade_id: string;
@@ -51,6 +99,7 @@ export type FinanceiroData = {
   custos_fixos: CustoFixo[];
   custos_variaveis: CustoVariavel[];
   lancamentos: LancamentoMes[];
+  despesas_mes: DespesasMesData;
 };
 
 export function FinanceiroView(props: FinanceiroData) {
@@ -261,8 +310,16 @@ function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal }
         <KpiCard fadeup={2} icon={Wallet} label="Resultado líquido mês" valor={resultadoMes}
           hint={`Margem ${mesAtual ? (resultadoMes / Math.max(1, fatRealMes || fatProjMes) * 100).toFixed(1) : 0}%`}
           tone={resultadoMes >= 0 ? "success" : "danger"} />
-        <KpiCard fadeup={3} icon={Award} label="Lucro acumulado" valor={payback.lucro_acumulado}
-          hint={`Real lançado · ${data.lancamentos.length} meses`} tone="purple" />
+        {(() => {
+          const totalReal = data.despesas_mes.total;
+          const totalProj = data.custos_fixos.filter((c) => c.ativo).reduce((s, c) => s + c.valor_mensal, 0);
+          const delta = totalProj > 0 ? ((totalReal - totalProj) / totalProj) * 100 : 0;
+          const tone = totalReal === 0 ? "purple" : totalReal <= totalProj ? "success" : "warning";
+          const hint = totalReal === 0
+            ? `Projetado ${fmtBRL(totalProj)}`
+            : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}% vs projetado`;
+          return <KpiCard fadeup={3} icon={Award} label="Despesas reais (mês)" valor={totalReal} hint={hint} tone={tone} />;
+        })()}
         <KpiCard fadeup={4} icon={Percent} label="% recuperação investimento" valor={payback.pct_recuperado} suffix="%"
           decimals={1} hint={`Meta ${data.config?.meta_payback_meses ?? 21} meses`} tone="cyan" />
       </div>
@@ -573,6 +630,7 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
   const lanc = data.lancamentos.find((l) => l.mes_index === mesIdx);
   const [fatReal, setFatReal] = React.useState(lanc?.faturamento_real?.toString().replace(".", ",") ?? "");
   const [saving, setSaving] = React.useState(false);
+  const [despesasOpen, setDespesasOpen] = React.useState(false);
 
   React.useEffect(() => {
     const l = data.lancamentos.find((l) => l.mes_index === mesIdx);
@@ -584,6 +642,21 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
   const fatHist = projecao.slice(0, mesIdx).map((p) => p.faturamento_real ?? p.faturamento_projetado);
   const rbt12 = fatHist.slice(-12).reduce((s, v) => s + v, 0);
 
+  // Overrides de despesas reais: só quando o mês selecionado bate com data.despesas_mes
+  const overrides = React.useMemo(() => {
+    if (data.despesas_mes.ano !== mes.ano || data.despesas_mes.mes !== mes.mes) return undefined;
+    const m = new Map<string, number>();
+    for (const cf of data.custos_fixos) {
+      const v = mapearDespesaReal(cf.descricao, data.despesas_mes);
+      if (v != null) m.set(cf.descricao, v);
+    }
+    for (const cv of data.custos_variaveis) {
+      const v = mapearDespesaReal(cv.descricao, data.despesas_mes);
+      if (v != null) m.set(cv.descricao, v);
+    }
+    return m;
+  }, [data.custos_fixos, data.custos_variaveis, data.despesas_mes, mes.ano, mes.mes]);
+
   const dreProj = calcularDRE({
     faturamento: fatProj, rbt12, mes_index: mesIdx,
     custos_fixos: data.custos_fixos, custos_variaveis: data.custos_variaveis,
@@ -594,6 +667,7 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
     faturamento: fatRealNum, rbt12, mes_index: mesIdx,
     custos_fixos: data.custos_fixos, custos_variaveis: data.custos_variaveis,
     investimento_total: investimentoTotal,
+    despesas_reais_overrides: overrides,
   }) : null;
 
   async function salvar() {
@@ -630,8 +704,30 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
           {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />} Salvar
         </Button>
         <Button size="sm" variant="outline" onClick={async () => { setFatReal(""); await lancarFaturamentoMes({ unidade_id: unidadeId, mes_index: mesIdx, ano: mes.ano, mes: mes.mes, faturamento_real: null }); }}>Limpar</Button>
+        {data.despesas_mes.ano === mes.ano && data.despesas_mes.mes === mes.mes && (
+          <Button size="sm" variant="outline"
+            onClick={() => setDespesasOpen(true)}
+            className="border-brand-cyan/40 text-brand-cyan hover:bg-brand-cyan/10">
+            <Wallet className="w-3.5 h-3.5 mr-1" />
+            Lançar despesas do mês{data.despesas_mes.total > 0 ? ` (${fmtBRL(data.despesas_mes.total)} já lançado)` : ""}
+          </Button>
+        )}
         {dreReal && <AlertaResultado resultado={dreReal.resultado_liquido} margem={dreReal.margem_operacional} />}
       </div>
+
+      <LancarDespesasDialog
+        open={despesasOpen}
+        onOpenChange={setDespesasOpen}
+        unidadeId={unidadeId}
+        unidadeNome={data.unidades.find((u) => u.id === unidadeId)?.nome ?? ""}
+        ano={mes.ano}
+        mes={mes.mes}
+        custosFixos={data.custos_fixos}
+        custosVariaveis={data.custos_variaveis}
+        faturamentoReal={fatRealNum}
+        porDescricaoExistente={data.despesas_mes.por_descricao}
+        porCategoriaExistente={data.despesas_mes.por_categoria}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <DRECard titulo="Projetado (Viabilidade)" tone="brand-cyan" dre={dreProj} />
@@ -672,14 +768,14 @@ function DRECard({ titulo, tone, dre }: { titulo: string; tone: string; dre: Ret
       <DRELinhaR label="(−) Simples Nacional"    valor={-dre.simples_nacional} red />
       <DRELinhaR label="(=) Receita Líquida"     valor={dre.receita_liquida} bold borderTop />
       <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold mt-3 mb-1">Custo do Serviço (CSP)</div>
-      {dre.detalhe_csp.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small />)}
+      {dre.detalhe_csp.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small isReal={d.is_real} />)}
       <DRELinhaR label="(=) Resultado Bruto" valor={dre.resultado_bruto} bold borderTop />
       <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold mt-3 mb-1">Despesas operacionais</div>
       <DRELinhaR label="(−) Royalties (Franchising)" valor={-dre.royalties} red small />
       <div className="text-[10px] font-semibold mt-1.5">Custos fixos</div>
-      {dre.detalhe_fixos.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small />)}
+      {dre.detalhe_fixos.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small isReal={d.is_real} />)}
       <div className="text-[10px] font-semibold mt-1.5">Custos variáveis</div>
-      {dre.detalhe_variaveis.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small />)}
+      {dre.detalhe_variaveis.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small isReal={d.is_real} />)}
       <DRELinhaR label="(−) Total Despesas" valor={-dre.despesas_total} red bold borderTop />
       <DRELinhaR label="(=) RESULTADO LÍQUIDO" valor={dre.resultado_liquido}
         red={dre.resultado_liquido < 0}
@@ -692,12 +788,15 @@ function DRECard({ titulo, tone, dre }: { titulo: string; tone: string; dre: Ret
   );
 }
 
-function DRELinhaR({ label, valor, bold, red, small, subtle, borderTop, className }: {
-  label: string; valor: number; bold?: boolean; red?: boolean; small?: boolean; subtle?: boolean; borderTop?: boolean; className?: string;
+function DRELinhaR({ label, valor, bold, red, small, subtle, borderTop, className, isReal }: {
+  label: string; valor: number; bold?: boolean; red?: boolean; small?: boolean; subtle?: boolean; borderTop?: boolean; className?: string; isReal?: boolean;
 }) {
   return (
     <div className={cn("flex items-center justify-between py-1", borderTop && "border-t border-border mt-1 pt-1.5", className)}>
-      <span className={cn("text-[12px]", small && "text-[11px]", subtle && "text-muted-foreground", bold && "font-semibold")}>{label}</span>
+      <span className={cn("text-[12px] inline-flex items-center gap-1.5", small && "text-[11px]", subtle && "text-muted-foreground", bold && "font-semibold")}>
+        {label}
+        {isReal && <span className="px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-success/15 text-success border border-success/30">real</span>}
+      </span>
       <span className={cn("font-mono tabular-nums text-[12px]", small && "text-[11px]", red && "text-danger", bold && "font-bold")}>
         {valor < 0 ? `(${fmtBRL(Math.abs(valor))})` : fmtBRL(valor)}
       </span>

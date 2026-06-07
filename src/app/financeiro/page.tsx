@@ -2,13 +2,13 @@ import { AppShell } from "@/components/shell/app-shell";
 import { FinanceiroView } from "@/components/financeiro/financeiro-view";
 import {
   getConfigUnidade, getInvestimento, getCustosFixos,
-  getCustosVariaveis, getLancamentos,
+  getCustosVariaveis, getLancamentos, getDespesasMes,
 } from "@/lib/financeiro/queries";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-type SearchParams = Promise<{ unidade?: string }>;
+type SearchParams = Promise<{ unidade?: string; despesas_mes?: string }>;
 
 export default async function Page({ searchParams }: { searchParams: SearchParams }) {
   const sb = await createClient();
@@ -34,12 +34,18 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
     );
   }
 
-  const [config, investimento, custos_fixos, custos_variaveis, lancamentos] = await Promise.all([
+  // Mês de despesas para o DRE (default = mês corrente)
+  const hoje = new Date();
+  const refMes = params.despesas_mes ?? `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  const [refAno, refMesNum] = refMes.split("-").map(Number);
+
+  const [config, investimento, custos_fixos, custos_variaveis, lancamentos, despesas_mes] = await Promise.all([
     getConfigUnidade(unidadeId),
     getInvestimento(unidadeId),
     getCustosFixos(unidadeId),
     getCustosVariaveis(unidadeId),
     getLancamentos(unidadeId),
+    getDespesasMes(unidadeId, refAno, refMesNum),
   ]);
 
   return (
@@ -52,6 +58,14 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
         custos_fixos={custos_fixos}
         custos_variaveis={custos_variaveis}
         lancamentos={lancamentos}
+        despesas_mes={{
+          ano: refAno,
+          mes: refMesNum,
+          itens: despesas_mes.itens,
+          por_categoria: Object.fromEntries(despesas_mes.porCategoria),
+          por_descricao: Object.fromEntries(despesas_mes.porDescricao),
+          total: despesas_mes.totalReal,
+        }}
       />
     </AppShell>
   );

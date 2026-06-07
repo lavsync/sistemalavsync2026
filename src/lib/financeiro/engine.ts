@@ -79,9 +79,9 @@ export type DREResultado = {
   resultado_liquido: number;
   margem_operacional: number;       // % sobre faturamento
   roi_sobre_investimento: number;   // % sobre investimento
-  detalhe_fixos: Array<{ descricao: string; valor: number }>;
-  detalhe_variaveis: Array<{ descricao: string; valor: number }>;
-  detalhe_csp: Array<{ descricao: string; valor: number }>;
+  detalhe_fixos: Array<{ descricao: string; valor: number; is_real?: boolean }>;
+  detalhe_variaveis: Array<{ descricao: string; valor: number; is_real?: boolean }>;
+  detalhe_csp: Array<{ descricao: string; valor: number; is_real?: boolean }>;
 };
 
 export type CalcDREInput = {
@@ -91,21 +91,28 @@ export type CalcDREInput = {
   custos_fixos: CustoFixo[];
   custos_variaveis: CustoVariavel[];
   investimento_total: number;
+  /** Map descricao do custo fixo → valor real lançado. Substitui o projetado quando presente. */
+  despesas_reais_overrides?: Map<string, number>;
 };
+
+export type DREResultadoLinha = { descricao: string; valor: number; is_real?: boolean };
 
 export function calcularDRE(input: CalcDREInput): DREResultado {
   const fat = Math.max(0, input.faturamento || 0);
   const rbt12 = input.rbt12 ?? fat * 12;
+  const overrides = input.despesas_reais_overrides ?? new Map<string, number>();
 
   // ─── CSP (custo do serviço) ───
-  const detalhe_csp: Array<{ descricao: string; valor: number }> = [];
+  const detalhe_csp: Array<{ descricao: string; valor: number; is_real?: boolean }> = [];
   let custo_servico_total = 0;
   for (const cv of input.custos_variaveis) {
     if (!cv.ativo) continue;
     if (cv.tipo !== "csp") continue;
-    const v = fat * ((cv.percentual_faturamento ?? 0) / 100);
+    const vProj = fat * ((cv.percentual_faturamento ?? 0) / 100);
+    const vReal = overrides.get(cv.descricao);
+    const v = vReal != null ? vReal : vProj;
     custo_servico_total += v;
-    detalhe_csp.push({ descricao: cv.descricao, valor: v });
+    detalhe_csp.push({ descricao: cv.descricao, valor: v, is_real: vReal != null });
   }
 
   // ─── Royalties (% mínimo a partir do mês X) ───
@@ -114,33 +121,45 @@ export function calcularDRE(input: CalcDREInput): DREResultado {
     if (!cv.ativo) continue;
     if (cv.tipo !== "royalties") continue;
     if (cv.a_partir_do_mes && input.mes_index < cv.a_partir_do_mes) continue;
-    const pct = fat * ((cv.percentual_faturamento ?? 0) / 100);
-    const min = cv.valor_minimo ?? 0;
-    royalties += Math.max(pct, min);
+    const vReal = overrides.get(cv.descricao);
+    if (vReal != null) {
+      royalties += vReal;
+    } else {
+      const pct = fat * ((cv.percentual_faturamento ?? 0) / 100);
+      const min = cv.valor_minimo ?? 0;
+      royalties += Math.max(pct, min);
+    }
   }
 
   // ─── Custos fixos ───
-  const detalhe_fixos: Array<{ descricao: string; valor: number }> = [];
+  const detalhe_fixos: Array<{ descricao: string; valor: number; is_real?: boolean }> = [];
   let custos_fixos_total = 0;
   for (const cf of input.custos_fixos) {
     if (!cf.ativo) continue;
-    const usaInaugural =
-      cf.valor_inaugural != null && cf.meses_inaugural != null &&
-      input.mes_index <= cf.meses_inaugural;
-    const v = usaInaugural ? cf.valor_inaugural! : cf.valor_mensal;
+    const vReal = overrides.get(cf.descricao);
+    let v: number;
+    if (vReal != null) {
+      v = vReal;
+    } else {
+      const usaInaugural =
+        cf.valor_inaugural != null && cf.meses_inaugural != null &&
+        input.mes_index <= cf.meses_inaugural;
+      v = usaInaugural ? cf.valor_inaugural! : cf.valor_mensal;
+    }
     custos_fixos_total += v;
-    detalhe_fixos.push({ descricao: cf.descricao, valor: v });
+    detalhe_fixos.push({ descricao: cf.descricao, valor: v, is_real: vReal != null });
   }
 
   // ─── Custos variáveis (excluindo simples/csp/royalties) ───
-  const detalhe_variaveis: Array<{ descricao: string; valor: number }> = [];
+  const detalhe_variaveis: Array<{ descricao: string; valor: number; is_real?: boolean }> = [];
   let custos_variaveis_total = 0;
   for (const cv of input.custos_variaveis) {
     if (!cv.ativo) continue;
     if (cv.tipo !== "variavel") continue;
-    const v = fat * ((cv.percentual_faturamento ?? 0) / 100);
+    const vReal = overrides.get(cv.descricao);
+    const v = vReal != null ? vReal : fat * ((cv.percentual_faturamento ?? 0) / 100);
     custos_variaveis_total += v;
-    detalhe_variaveis.push({ descricao: cv.descricao, valor: v });
+    detalhe_variaveis.push({ descricao: cv.descricao, valor: v, is_real: vReal != null });
   }
 
   // ─── Simples Nacional ───

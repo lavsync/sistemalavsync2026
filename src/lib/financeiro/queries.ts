@@ -159,3 +159,135 @@ export function calcInvestimentoTotal(cats: InvestimentoCategoria[]): { projetad
   }
   return { projetado: p, real: r, comDado: com };
 }
+
+// ─── Despesas reais lançadas ────────────────────────────────────────
+// Para o DRE Mensal substituir custos PROJETADOS por valores REAIS.
+export type DespesaReal = {
+  id: string;
+  categoria_nome: string;        // ex: "Aluguel"
+  descricao: string;
+  valor: number;
+  vencimento: string;
+  pago_em: string | null;
+};
+
+export type DespesasMesResult = {
+  porCategoria: Map<string, number>;   // nome categoria → soma valor
+  porDescricao: Map<string, number>;   // descricao normalizada → soma valor
+  itens: DespesaReal[];
+  totalReal: number;
+};
+
+function norm(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+/**
+ * Tenta casar uma linha de custo fixo (descricao do template) com uma categoria
+ * financeira. Ex: "Aluguel e IPTU" → "Aluguel"; "Telefone e Internet" → "Internet";
+ * "Publicidade Local" → "Marketing".
+ */
+const SINONIMOS: Record<string, string[]> = {
+  "aluguel":         ["aluguel", "aluguel e iptu", "iptu"],
+  "energia eletrica": ["energia", "energia eletrica", "luz", "energia elétrica"],
+  "agua e esgoto":   ["agua", "agua e esgoto", "água", "água e esgoto"],
+  "internet":        ["telefone e internet", "telefone", "internet", "telecom"],
+  "marketing":       ["marketing", "publicidade", "publicidade local", "propaganda", "fundo de propaganda", "marketing inaugural"],
+  "manutencao":      ["manutencao", "manutenção", "reparos"],
+  "produtos quimicos": ["sabao", "amaciante", "csp", "sabao e amaciante", "produtos quimicos", "produtos químicos"],
+  "impostos":        ["impostos", "simples nacional", "iss", "icms"],
+  "folha de pagamento": ["folha", "salarios", "salário", "folha de pagamento"],
+};
+
+export function matchCategoriaCustoFixo(custoDescricao: string): string | null {
+  const n = norm(custoDescricao);
+  for (const [catKey, sins] of Object.entries(SINONIMOS)) {
+    for (const sin of sins) {
+      if (n.includes(sin)) return catKey;
+    }
+  }
+  return null;
+}
+
+export async function getDespesasMes(
+  unidadeId: string,
+  ano: number,
+  mes: number,
+): Promise<DespesasMesResult> {
+  const supabase = await createClient();
+  const ini = new Date(ano, mes - 1, 1).toISOString().slice(0, 10);
+  const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("despesas")
+    .select(`
+      id, descricao, valor, vencimento, pago_em,
+      categoria:categorias_financeiras(nome)
+    `)
+    .eq("unidade_id", unidadeId)
+    .gte("vencimento", ini)
+    .lte("vencimento", fim);
+  if (error) throw error;
+
+  type Row = {
+    id: string;
+    descricao: string;
+    valor: number | string;
+    vencimento: string;
+    pago_em: string | null;
+    categoria: { nome: string } | Array<{ nome: string }> | null;
+  };
+  const rows = (data ?? []) as Row[];
+
+  const porCategoria = new Map<string, number>();
+  const porDescricao = new Map<string, number>();
+  const itens: DespesaReal[] = [];
+  let total = 0;
+
+  for (const r of rows) {
+    const cat = Array.isArray(r.categoria) ? r.categoria[0]?.nome : r.categoria?.nome;
+    const v = Number(r.valor) || 0;
+    total += v;
+    if (cat) {
+      const k = norm(cat);
+      porCategoria.set(k, (porCategoria.get(k) ?? 0) + v);
+    }
+    if (r.descricao) {
+      const k = norm(r.descricao);
+      porDescricao.set(k, (porDescricao.get(k) ?? 0) + v);
+    }
+    itens.push({
+      id: r.id,
+      categoria_nome: cat ?? "Sem categoria",
+      descricao: r.descricao,
+      valor: v,
+      vencimento: r.vencimento,
+      pago_em: r.pago_em,
+    });
+  }
+
+  return { porCategoria, porDescricao, itens, totalReal: Math.round(total * 100) / 100 };
+}
+
+/** Cruza despesas reais com os custos fixos do template — retorna mapa
+ *  descricao_custo_fixo → valor_real (quando há correspondência). */
+export function mapearDespesasParaCustos(
+  custosFixos: Array<{ descricao: string }>,
+  despesas: DespesasMesResult,
+): Map<string, number> {
+  const overrides = new Map<string, number>();
+  for (const cf of custosFixos) {
+    const descNorm = norm(cf.descricao);
+    // 1. match exato por descrição
+    if (despesas.porDescricao.has(descNorm)) {
+      overrides.set(cf.descricao, despesas.porDescricao.get(descNorm)!);
+      continue;
+    }
+    // 2. match por categoria sinônima
+    const catKey = matchCategoriaCustoFixo(cf.descricao);
+    if (catKey && despesas.porCategoria.has(catKey)) {
+      overrides.set(cf.descricao, despesas.porCategoria.get(catKey)!);
+    }
+  }
+  return overrides;
+}
