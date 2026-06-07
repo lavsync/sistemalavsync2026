@@ -3,16 +3,20 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as Tabs from "@radix-ui/react-tabs";
 import {
   Database, Trash2, AlertTriangle, CheckCircle2, X, Loader2,
-  FileSpreadsheet, Filter, Building2, ChevronDown, Eye,
-  RotateCcw,
+  FileSpreadsheet, Filter, Building2, Eye, RotateCcw, Users, ShoppingCart,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
-import type { ImportacaoRow } from "@/lib/importacoes/queries";
-import { excluirImportacao, zerarImportacoesUnidade } from "@/lib/importacoes/actions";
+import type { ImportacaoRow, ImportacaoClienteRow } from "@/lib/importacoes/queries";
+import {
+  excluirImportacao, zerarImportacoesUnidade,
+  excluirImportacaoClientes, zerarImportacoesClientesUnidade,
+} from "@/lib/importacoes/actions";
 
 const fmtBR = (iso: string) => {
   const d = new Date(iso);
@@ -26,34 +30,133 @@ const fmtSize = (b: number | null) => {
 
 type Unidade = { id: string; nome: string };
 
-export function ImportacoesView({ importacoes, unidades }: { importacoes: ImportacaoRow[]; unidades: Unidade[] }) {
+export function ImportacoesView({
+  importacoesVendas,
+  importacoesClientes,
+  unidades,
+}: {
+  importacoesVendas: ImportacaoRow[];
+  importacoesClientes: ImportacaoClienteRow[];
+  unidades: Unidade[];
+}) {
+  const [tab, setTab] = React.useState<"vendas" | "clientes">("vendas");
+
+  return (
+    <div className="px-6 lg:px-8 py-6 space-y-5">
+      <PageHeader
+        eyebrow="Cadastros · Sistema"
+        title="Gerenciar planilhas importadas"
+        subtitle="Histórico completo de uploads. Excluir cascade nas vendas. Pra clientes, preserva quem já tem compras."
+      />
+
+      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "vendas" | "clientes")}>
+        <Tabs.List className="flex gap-1 rounded-xl border border-border bg-card p-1 w-fit">
+          <Tabs.Trigger value="vendas"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth
+              data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-cyan data-[state=active]:to-brand-blue data-[state=active]:text-white
+              data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
+            <ShoppingCart className="w-3.5 h-3.5" />
+            Vendas
+            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{importacoesVendas.length}</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="clientes"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth
+              data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-purple data-[state=active]:to-brand-blue data-[state=active]:text-white
+              data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
+            <Users className="w-3.5 h-3.5" />
+            Clientes
+            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{importacoesClientes.length}</span>
+          </Tabs.Trigger>
+        </Tabs.List>
+
+        <Tabs.Content value="vendas" className="mt-4 outline-none space-y-4">
+          <TabelaImportacoes
+            tipo="vendas"
+            rows={importacoesVendas}
+            unidades={unidades}
+          />
+        </Tabs.Content>
+        <Tabs.Content value="clientes" className="mt-4 outline-none space-y-4">
+          <TabelaImportacoes
+            tipo="clientes"
+            rows={importacoesClientes}
+            unidades={unidades}
+          />
+        </Tabs.Content>
+      </Tabs.Root>
+
+      <div className="rounded-xl border border-border bg-muted/20 p-4 text-[11px] text-muted-foreground">
+        <div className="inline-flex items-center gap-1.5 font-semibold text-foreground mb-1">
+          <Database className="w-3.5 h-3.5 text-brand-cyan" /> Como funciona
+        </div>
+        <ul className="space-y-1 list-disc pl-4">
+          <li><strong>Vendas:</strong> ao excluir uma importação, todas as vendas criadas por ela são apagadas (cascade).</li>
+          <li><strong>Clientes:</strong> ao excluir, apaga apenas os clientes que NÃO têm compras vinculadas. Os que têm histórico ficam preservados (importacao_id vira NULL).</li>
+          <li>&quot;Zerar tudo da unidade&quot; aplica em massa com confirmação digitada (&quot;ZERAR&quot;).</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Tabela genérica que serve vendas OU clientes
+// ────────────────────────────────────────────────────────────
+
+type AnyRow = ImportacaoRow | ImportacaoClienteRow;
+
+function isVenda(r: AnyRow): r is ImportacaoRow {
+  return "vendas_atualmente" in r;
+}
+
+function TabelaImportacoes({
+  tipo, rows, unidades,
+}: {
+  tipo: "vendas" | "clientes";
+  rows: AnyRow[];
+  unidades: Unidade[];
+}) {
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>("todas");
-  const [verErros, setVerErros] = React.useState<ImportacaoRow | null>(null);
+  const [verErros, setVerErros] = React.useState<AnyRow | null>(null);
   const [excluindo, setExcluindo] = React.useState<string | null>(null);
   const [zerandoUnid, setZerandoUnid] = React.useState<string | null>(null);
 
   const filtradas = filtroUnidade === "todas"
-    ? importacoes
-    : importacoes.filter((i) => i.unidade_id === filtroUnidade);
+    ? rows
+    : rows.filter((i) => i.unidade_id === filtroUnidade);
 
   const totalsByUnidade = React.useMemo(() => {
-    const map = new Map<string, { qtd: number; vendas: number }>();
-    for (const i of importacoes) {
-      const cur = map.get(i.unidade_id) ?? { qtd: 0, vendas: 0 };
+    const map = new Map<string, { qtd: number; total: number; com_venda?: number }>();
+    for (const i of rows) {
+      const cur = map.get(i.unidade_id) ?? { qtd: 0, total: 0, com_venda: 0 };
       cur.qtd += 1;
-      cur.vendas += i.vendas_atualmente;
+      if (isVenda(i)) cur.total += i.vendas_atualmente;
+      else {
+        cur.total += i.clientes_atualmente;
+        cur.com_venda = (cur.com_venda ?? 0) + i.clientes_com_venda;
+      }
       map.set(i.unidade_id, cur);
     }
     return map;
-  }, [importacoes]);
+  }, [rows]);
 
-  async function onExcluir(imp: ImportacaoRow) {
-    const txt = `Excluir esta importação?\n\nArquivo: ${imp.arquivo_nome}\nUnidade: ${imp.unidade_nome}\nVendas que serão APAGADAS: ${imp.vendas_atualmente}\n\nEsta ação é IRREVERSÍVEL.`;
+  async function onExcluir(imp: AnyRow) {
+    let txt: string;
+    if (isVenda(imp)) {
+      txt = `Excluir esta importação de VENDAS?\n\nArquivo: ${imp.arquivo_nome}\nUnidade: ${imp.unidade_nome}\nVendas que serão APAGADAS: ${imp.vendas_atualmente}\n\nIRREVERSÍVEL.`;
+    } else {
+      txt = `Excluir esta importação de CLIENTES?\n\nArquivo: ${imp.arquivo_nome}\nUnidade: ${imp.unidade_nome}\nClientes vinculados: ${imp.clientes_atualmente}\n  └ Com compras (preservados): ${imp.clientes_com_venda}\n  └ Sem compras (serão apagados): ${imp.clientes_atualmente - imp.clientes_com_venda}\n\nClientes com histórico de compras ficam, só perdem o vínculo com essa importação.`;
+    }
     if (!confirm(txt)) return;
     setExcluindo(imp.id);
     try {
-      const r = await excluirImportacao(imp.id);
-      alert(`Removida. ${r.vendasRemovidas} vendas apagadas.`);
+      if (isVenda(imp)) {
+        const r = await excluirImportacao(imp.id);
+        alert(`Removida. ${r.vendasRemovidas} vendas apagadas.`);
+      } else {
+        const r = await excluirImportacaoClientes(imp.id);
+        alert(`Removida. ${r.clientesRemovidos} clientes apagados, ${r.clientesPreservados} preservados (com compras).`);
+      }
     } catch (e) {
       alert("Erro: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -63,13 +166,23 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
 
   async function onZerarUnidade(unidadeId: string, unidadeNome: string) {
     const stats = totalsByUnidade.get(unidadeId);
-    const txt = `ZERAR TODAS as importações da unidade "${unidadeNome}"?\n\nIsto vai apagar:\n• ${stats?.qtd ?? 0} importações\n• ${stats?.vendas ?? 0} vendas relacionadas\n\nClientes serão preservados.\n\nDigite "ZERAR" pra confirmar.`;
+    let txt: string;
+    if (tipo === "vendas") {
+      txt = `ZERAR TODAS as importações de VENDAS da unidade "${unidadeNome}"?\n\n• ${stats?.qtd ?? 0} importações\n• ${stats?.total ?? 0} vendas relacionadas\n\nClientes preservados.\n\nDigite "ZERAR" pra confirmar.`;
+    } else {
+      txt = `ZERAR TODAS as importações de CLIENTES da unidade "${unidadeNome}"?\n\n• ${stats?.qtd ?? 0} importações\n• ${stats?.total ?? 0} clientes vinculados (${stats?.com_venda ?? 0} têm compras, ficam)\n\nDigite "ZERAR" pra confirmar.`;
+    }
     const r = prompt(txt);
     if (r !== "ZERAR") return;
     setZerandoUnid(unidadeId);
     try {
-      const out = await zerarImportacoesUnidade(unidadeId);
-      alert(`Zerado: ${out.imports} importações e ${out.vendas} vendas apagadas.`);
+      if (tipo === "vendas") {
+        const out = await zerarImportacoesUnidade(unidadeId);
+        alert(`Zerado: ${out.imports} importações e ${out.vendas} vendas apagadas.`);
+      } else {
+        const out = await zerarImportacoesClientesUnidade(unidadeId);
+        alert(`Zerado: ${out.imports} importações · ${out.clientesRemovidos} clientes apagados · ${out.clientesPreservados} preservados (com compras).`);
+      }
     } catch (e) {
       alert("Erro: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -78,14 +191,7 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
   }
 
   return (
-    <div className="px-6 lg:px-8 py-6 space-y-6">
-      <PageHeader
-        eyebrow="Cadastros · Sistema"
-        title="Gerenciar planilhas de vendas importadas"
-        subtitle={`${importacoes.length} importações no histórico · pode excluir individualmente ou zerar tudo de uma unidade`}
-      />
-
-      {/* Filtros + ações por unidade */}
+    <>
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card">
           <Filter className="w-3.5 h-3.5 text-muted-foreground" />
@@ -94,7 +200,9 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
             className="form-input h-7 py-0 text-[12px]">
             <option value="todas">Todas</option>
             {unidades.map((u) => (
-              <option key={u.id} value={u.id}>{u.nome} ({totalsByUnidade.get(u.id)?.qtd ?? 0})</option>
+              <option key={u.id} value={u.id}>
+                {u.nome} ({totalsByUnidade.get(u.id)?.qtd ?? 0})
+              </option>
             ))}
           </select>
         </div>
@@ -107,19 +215,20 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
               disabled={zerandoUnid === u.id}
               className="border-danger/40 text-danger hover:bg-danger/10">
               {zerandoUnid === u.id ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 mr-1" />}
-              Zerar tudo de {u.nome} ({s.vendas} vendas)
+              Zerar tudo de {u.nome} ({s.total} {tipo === "vendas" ? "vendas" : "clientes"})
             </Button>
           );
         })()}
       </div>
 
-      {/* Tabela */}
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
         {filtradas.length === 0 ? (
           <div className="p-10 text-center text-muted-foreground">
             <FileSpreadsheet className="w-10 h-10 mx-auto opacity-30 mb-2" />
             <div className="text-[13px] font-semibold">Nenhuma importação</div>
-            <div className="text-[11px] mt-1">Faça uma importação em /performance pra começar.</div>
+            <div className="text-[11px] mt-1">
+              {tipo === "vendas" ? "Faça uma importação em /performance pra começar." : "Faça uma importação em /clientes pra começar."}
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -130,9 +239,20 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
                   <th className="text-left py-2.5 px-3 font-semibold">Unidade</th>
                   <th className="text-left py-2.5 px-3 font-semibold">Arquivo</th>
                   <th className="text-left py-2.5 px-3 font-semibold">Origem</th>
+                  <th className="text-left py-2.5 px-3 font-semibold">Modo</th>
                   <th className="text-right py-2.5 px-3 font-semibold">Linhas</th>
-                  <th className="text-right py-2.5 px-3 font-semibold">Inseridas</th>
-                  <th className="text-right py-2.5 px-3 font-semibold">Ainda no banco</th>
+                  {tipo === "vendas" ? (
+                    <>
+                      <th className="text-right py-2.5 px-3 font-semibold">Inseridas</th>
+                      <th className="text-right py-2.5 px-3 font-semibold">Ainda no banco</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="text-right py-2.5 px-3 font-semibold">Novos</th>
+                      <th className="text-right py-2.5 px-3 font-semibold">Atualizados</th>
+                      <th className="text-right py-2.5 px-3 font-semibold">Com compras</th>
+                    </>
+                  )}
                   <th className="text-right py-2.5 px-3 font-semibold">Erros</th>
                   <th className="text-center py-2.5 px-3 font-semibold">Status</th>
                   <th className="text-right py-2.5 px-3 font-semibold">Ações</th>
@@ -140,66 +260,88 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
               </thead>
               <tbody>
                 <AnimatePresence>
-                  {filtradas.map((imp) => (
-                    <motion.tr key={imp.id}
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -20 }}
-                      className="border-b border-border/40 hover:bg-secondary/20">
-                      <td className="py-2 px-3 font-mono text-muted-foreground whitespace-nowrap">{fmtBR(imp.criado_em)}</td>
-                      <td className="py-2 px-3">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold">
-                          <Building2 className="w-3 h-3 text-muted-foreground" />
-                          {imp.unidade_nome}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 max-w-[280px] truncate" title={imp.arquivo_nome}>
-                        <span className="font-medium">{imp.arquivo_nome}</span>
-                        <span className="ml-2 text-[10px] text-muted-foreground">{fmtSize(imp.arquivo_tamanho)}</span>
-                      </td>
-                      <td className="py-2 px-3">
-                        <span className={cn("text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
-                          imp.origem_sistema === "vm_tecnologia" ? "bg-brand-purple/15 text-brand-purple"
-                          : imp.origem_sistema === "maxpan" ? "bg-brand-cyan/15 text-brand-cyan"
-                          : "bg-muted text-muted-foreground")}>
-                          {imp.origem_sistema}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono">{imp.total_linhas}</td>
-                      <td className={cn("py-2 px-3 text-right font-mono font-semibold",
-                        imp.total_inseridos > 0 ? "text-success" : "text-muted-foreground")}>{imp.total_inseridos}</td>
-                      <td className={cn("py-2 px-3 text-right font-mono font-semibold",
-                        imp.vendas_atualmente === imp.total_inseridos && imp.total_inseridos > 0 ? "text-success"
-                        : imp.vendas_atualmente > 0 ? "text-warning" : "text-muted-foreground")}>
-                        {imp.vendas_atualmente}
-                      </td>
-                      <td className={cn("py-2 px-3 text-right font-mono", imp.total_erros > 0 ? "text-danger font-bold" : "text-muted-foreground")}>
-                        {imp.total_erros}
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        {imp.status === "concluido" ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-success uppercase tracking-wider">
-                            <CheckCircle2 className="w-3 h-3" /> ok
+                  {filtradas.map((imp) => {
+                    const isV = isVenda(imp);
+                    return (
+                      <motion.tr key={imp.id}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -20 }}
+                        className="border-b border-border/40 hover:bg-secondary/20">
+                        <td className="py-2 px-3 font-mono text-muted-foreground whitespace-nowrap">{fmtBR(imp.criado_em)}</td>
+                        <td className="py-2 px-3">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold">
+                            <Building2 className="w-3 h-3 text-muted-foreground" />
+                            {imp.unidade_nome}
                           </span>
+                        </td>
+                        <td className="py-2 px-3 max-w-[280px] truncate" title={imp.arquivo_nome}>
+                          <span className="font-medium">{imp.arquivo_nome}</span>
+                          <span className="ml-2 text-[10px] text-muted-foreground">{fmtSize(imp.arquivo_tamanho)}</span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className={cn("text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
+                            imp.origem_sistema === "vm_tecnologia" ? "bg-brand-purple/15 text-brand-purple"
+                            : imp.origem_sistema === "maxpan" || imp.origem_sistema === "maxlav" ? "bg-brand-cyan/15 text-brand-cyan"
+                            : "bg-muted text-muted-foreground")}>
+                            {imp.origem_sistema}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-[10px] uppercase font-mono text-muted-foreground">{imp.modo}</td>
+                        <td className="py-2 px-3 text-right font-mono">{imp.total_linhas}</td>
+                        {isV ? (
+                          <>
+                            <td className={cn("py-2 px-3 text-right font-mono font-semibold",
+                              imp.total_inseridos > 0 ? "text-success" : "text-muted-foreground")}>{imp.total_inseridos}</td>
+                            <td className={cn("py-2 px-3 text-right font-mono font-semibold",
+                              imp.vendas_atualmente === imp.total_inseridos && imp.total_inseridos > 0 ? "text-success"
+                              : imp.vendas_atualmente > 0 ? "text-warning" : "text-muted-foreground")}>
+                              {imp.vendas_atualmente}
+                            </td>
+                          </>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warning uppercase tracking-wider">
-                            <AlertTriangle className="w-3 h-3" /> {imp.status}
-                          </span>
+                          <>
+                            <td className={cn("py-2 px-3 text-right font-mono font-semibold",
+                              imp.total_inseridos > 0 ? "text-success" : "text-muted-foreground")}>{imp.total_inseridos}</td>
+                            <td className={cn("py-2 px-3 text-right font-mono font-semibold",
+                              imp.total_atualizados > 0 ? "text-brand-cyan" : "text-muted-foreground")}>{imp.total_atualizados}</td>
+                            <td className={cn("py-2 px-3 text-right font-mono font-semibold",
+                              imp.clientes_com_venda > 0 ? "text-success" : "text-muted-foreground")}>
+                              <span className="inline-flex items-center gap-1">
+                                {imp.clientes_com_venda > 0 && <Shield className="w-3 h-3" />}
+                                {imp.clientes_com_venda}
+                              </span>
+                            </td>
+                          </>
                         )}
-                      </td>
-                      <td className="py-2 px-3 text-right whitespace-nowrap">
-                        {imp.erros_json != null && Array.isArray(imp.erros_json) && (imp.erros_json as unknown[]).length > 0 && (
-                          <button onClick={() => setVerErros(imp)}
-                            className="px-2 py-1 rounded text-[10px] font-semibold text-muted-foreground hover:bg-secondary inline-flex items-center gap-1">
-                            <Eye className="w-3 h-3" /> erros
+                        <td className={cn("py-2 px-3 text-right font-mono", imp.total_erros > 0 ? "text-danger font-bold" : "text-muted-foreground")}>
+                          {imp.total_erros}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {imp.status === "concluido" ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-success uppercase tracking-wider">
+                              <CheckCircle2 className="w-3 h-3" /> ok
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-warning uppercase tracking-wider">
+                              <AlertTriangle className="w-3 h-3" /> {imp.status}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-right whitespace-nowrap">
+                          {imp.erros_json != null && Array.isArray(imp.erros_json) && (imp.erros_json as unknown[]).length > 0 && (
+                            <button onClick={() => setVerErros(imp)}
+                              className="px-2 py-1 rounded text-[10px] font-semibold text-muted-foreground hover:bg-secondary inline-flex items-center gap-1">
+                              <Eye className="w-3 h-3" /> erros
+                            </button>
+                          )}
+                          <button onClick={() => onExcluir(imp)} disabled={excluindo === imp.id}
+                            className="px-2 py-1 rounded text-[10px] font-semibold text-danger hover:bg-danger/10 inline-flex items-center gap-1 disabled:opacity-50">
+                            {excluindo === imp.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                            excluir
                           </button>
-                        )}
-                        <button onClick={() => onExcluir(imp)} disabled={excluindo === imp.id}
-                          className="px-2 py-1 rounded text-[10px] font-semibold text-danger hover:bg-danger/10 inline-flex items-center gap-1 disabled:opacity-50">
-                          {excluindo === imp.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                          excluir
-                        </button>
-                      </td>
-                    </motion.tr>
-                  ))}
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
                 </AnimatePresence>
               </tbody>
             </table>
@@ -207,7 +349,6 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
         )}
       </div>
 
-      {/* Dialog ver erros */}
       <Dialog.Root open={verErros != null} onOpenChange={(o) => !o && setVerErros(null)}>
         <Dialog.Portal>
           <AnimatePresence>
@@ -244,18 +385,6 @@ export function ImportacoesView({ importacoes, unidades }: { importacoes: Import
           </AnimatePresence>
         </Dialog.Portal>
       </Dialog.Root>
-
-      <div className="rounded-xl border border-border bg-muted/20 p-4 text-[11px] text-muted-foreground">
-        <div className="inline-flex items-center gap-1.5 font-semibold text-foreground mb-1">
-          <Database className="w-3.5 h-3.5 text-brand-cyan" /> Como funciona
-        </div>
-        <ul className="space-y-1 list-disc pl-4">
-          <li>Cada importação cria N vendas com <code>importacao_id</code> igual ao ID dela.</li>
-          <li>Ao excluir, todas as vendas vinculadas são apagadas (cascade automático).</li>
-          <li>Coluna <strong>Ainda no banco</strong> mostra quantas dessas vendas existem hoje (pode ser menor que &quot;Inseridas&quot; se você apagou manualmente).</li>
-          <li>Clientes NÃO são apagados ao excluir importação de vendas — eles vivem em /clientes.</li>
-        </ul>
-      </div>
-    </div>
+    </>
   );
 }
