@@ -166,14 +166,18 @@ function TabelaImportacoes({
 
   async function onZerarUnidade(unidadeId: string, unidadeNome: string) {
     const stats = totalsByUnidade.get(unidadeId);
-    let txt: string;
-    if (tipo === "vendas") {
-      txt = `ZERAR TODAS as importações de VENDAS da unidade "${unidadeNome}"?\n\n• ${stats?.qtd ?? 0} importações\n• ${stats?.total ?? 0} vendas relacionadas\n\nClientes preservados.\n\nDigite "ZERAR" pra confirmar.`;
-    } else {
-      txt = `ZERAR TODAS as importações de CLIENTES da unidade "${unidadeNome}"?\n\n• ${stats?.qtd ?? 0} importações\n• ${stats?.total ?? 0} clientes vinculados (${stats?.com_venda ?? 0} têm compras, ficam)\n\nDigite "ZERAR" pra confirmar.`;
+    // 1ª confirmação: alert dos danos
+    const alerta = tipo === "vendas"
+      ? `⚠️ ATENÇÃO: vai apagar ${stats?.total ?? 0} vendas + ${stats?.qtd ?? 0} importações da ${unidadeNome}.\n\nEssa ação é IRREVERSÍVEL. Você terá que re-importar tudo das planilhas originais.\n\nContinuar?`
+      : `⚠️ ATENÇÃO: vai zerar ${stats?.qtd ?? 0} importações de clientes da ${unidadeNome}.\nClientes com compras ficam (${stats?.com_venda ?? 0} preservados), o resto (${(stats?.total ?? 0) - (stats?.com_venda ?? 0)}) é apagado.\n\nContinuar?`;
+    if (!confirm(alerta)) return;
+    // 2ª confirmação: digitar nome da unidade exato
+    const codigo = `ZERAR ${unidadeNome.toUpperCase()}`;
+    const r = prompt(`Pra confirmar, digite EXATAMENTE:\n\n${codigo}\n\n(case-sensitive · sem aspas)`);
+    if (r !== codigo) {
+      if (r != null) alert("Confirmação não bateu. Operação cancelada.");
+      return;
     }
-    const r = prompt(txt);
-    if (r !== "ZERAR") return;
     setZerandoUnid(unidadeId);
     try {
       if (tipo === "vendas") {
