@@ -367,16 +367,28 @@ export type CupomUso = {
 
 export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise<CupomUso[]> {
   const supabase = await createClient();
-  let q = supabase
+  // Se refMes não foi especificado, ancorar no mês da última venda registrada
+  // (evita lista vazia quando a base está atrasada). Resolve Castelo/Cabral.
+  let refReal = refMes;
+  if (!refReal) {
+    const { data: ult } = await supabase
+      .from("vendas")
+      .select("data_venda")
+      .eq("unidade_id", unidadeId)
+      .eq("situacao", "sucesso")
+      .order("data_venda", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    refReal = ult?.data_venda ? new Date(ult.data_venda as string) : new Date();
+  }
+  const q = supabase
     .from("vendas")
     .select("cupom_codigo, valor, valor_sem_desconto")
     .eq("unidade_id", unidadeId)
     .eq("situacao", "sucesso")
-    .not("cupom_codigo", "is", null);
-  if (refMes) {
-    q = q.gte("data_venda", inicioMes(refMes).toISOString())
-         .lte("data_venda", fimMes(refMes).toISOString());
-  }
+    .not("cupom_codigo", "is", null)
+    .gte("data_venda", inicioMes(refReal).toISOString())
+    .lte("data_venda", fimMes(refReal).toISOString());
   const { data, error } = await q;
   if (error) {
     if (isMissingTable(error)) return [];
@@ -408,16 +420,26 @@ export type VoucherUso = {
 
 export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promise<VoucherUso[]> {
   const supabase = await createClient();
-  let q = supabase
+  let refReal = refMes;
+  if (!refReal) {
+    const { data: ult } = await supabase
+      .from("vendas")
+      .select("data_venda")
+      .eq("unidade_id", unidadeId)
+      .eq("situacao", "sucesso")
+      .order("data_venda", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    refReal = ult?.data_venda ? new Date(ult.data_venda as string) : new Date();
+  }
+  const q = supabase
     .from("vendas")
     .select("voucher_codigo, voucher_categoria, valor")
     .eq("unidade_id", unidadeId)
     .eq("situacao", "sucesso")
-    .not("voucher_codigo", "is", null);
-  if (refMes) {
-    q = q.gte("data_venda", inicioMes(refMes).toISOString())
-         .lte("data_venda", fimMes(refMes).toISOString());
-  }
+    .not("voucher_codigo", "is", null)
+    .gte("data_venda", inicioMes(refReal).toISOString())
+    .lte("data_venda", fimMes(refReal).toISOString());
   const { data, error } = await q;
   if (error) {
     if (isMissingTable(error)) return [];
