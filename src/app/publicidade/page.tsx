@@ -1,24 +1,23 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { ModulePlaceholder } from "@/components/views/module-placeholder";
+import { MarketingView } from "@/components/marketing/marketing-view";
+import { listarCampanhas } from "@/lib/marketing/queries";
+import { listarUnidades, getUnidadeAtiva } from "@/lib/unidade-ativa";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const [campanhas, unidades, unidadeAtiva] = await Promise.all([
+    listarCampanhas(),
+    listarUnidades(),
+    getUnidadeAtiva(),
+  ]);
+
   return (
     <AppShell>
-      <ModulePlaceholder
-        eyebrow="Publicidade"
-        title="Campanhas e parceiros locais"
-        subtitle="Campanhas ativas, programadas, parceiros locais, mídia indoor, cupons, WhatsApp, promoções e resultados."
-        iconName="megaphone"
-        components={[
-          "Campanhas ativas",
-          "Campanhas programadas",
-          "Parceiros locais",
-          "Mídia indoor",
-          "Cupons",
-          "WhatsApp",
-          "Promoções",
-          "Resultados das campanhas",
-        ]}
+      <MarketingView
+        campanhas={campanhas}
+        unidades={unidades}
+        unidadeAtivaId={unidadeAtiva?.id ?? unidades[0]?.id ?? ""}
       />
     </AppShell>
   );
