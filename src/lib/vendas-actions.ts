@@ -105,7 +105,7 @@ export async function importarVendas(
     }
   }
 
-  // Buscar requisicoes já existentes (dedupe)
+  // Buscar requisicoes já existentes (dedupe pra MAXPAN, que traz requisicao)
   const reqsExistentes = new Set<string>();
   const reqsPayload = Array.from(new Set(payloads.map((p) => p.requisicao).filter(Boolean))) as string[];
   if (reqsPayload.length > 0) {
@@ -118,6 +118,31 @@ export async function importarVendas(
         .in("requisicao", slice);
       for (const r of (exs ?? []) as Array<{ requisicao: string }>) {
         if (r.requisicao) reqsExistentes.add(r.requisicao);
+      }
+    }
+  }
+
+  // Buscar assinaturas (data+valor+cpf) já existentes pra dedupe de planilhas VM sem requisicao.
+  // Sem isso, a constraint ux_vendas_unidade_assinatura mata o batch inteiro num re-import.
+  const assinaturasExistentes = new Set<string>();
+  const payloadsSemReq = payloads.filter((p) => !p.requisicao);
+  if (payloadsSemReq.length > 0) {
+    const datas = Array.from(new Set(payloadsSemReq.map((p) => p.data_venda)));
+    // Janela mínima/máxima das datas do batch — busca todas as vendas existentes naquela janela
+    if (datas.length > 0) {
+      const dMin = datas.reduce((a, b) => (a < b ? a : b));
+      const dMax = datas.reduce((a, b) => (a > b ? a : b));
+      const { data: exsAss } = await supabase
+        .from("vendas")
+        .select("data_venda, valor, cpf, requisicao")
+        .eq("unidade_id", unidadeId)
+        .gte("data_venda", dMin)
+        .lte("data_venda", dMax);
+      for (const r of (exsAss ?? []) as Array<{ data_venda: string; valor: number | string; cpf: string | null; requisicao: string | null }>) {
+        if (r.requisicao && r.requisicao.length > 0) continue; // só conta quando antiga tb não tem requisicao
+        const cpfD = digitos(r.cpf);
+        const sig = `${new Date(r.data_venda).toISOString()}|${Number(r.valor)}|${cpfD}`;
+        assinaturasExistentes.add(sig);
       }
     }
   }
@@ -141,8 +166,8 @@ export async function importarVendas(
 
     // assinatura pra batches sem requisicao
     if (!p.requisicao) {
-      const sig = `${p.data_venda}|${p.valor}|${p.cpf ?? ""}`;
-      if (assinaturas.has(sig)) continue;
+      const sig = `${new Date(p.data_venda).toISOString()}|${p.valor}|${digitos(p.cpf)}`;
+      if (assinaturas.has(sig) || assinaturasExistentes.has(sig)) continue;
       assinaturas.add(sig);
     }
 
