@@ -50,7 +50,7 @@ export function DadosView({ unidades }: { unidades: Unidade[] }) {
     try {
       const r = await gerarExport({
         tipo: spec.key,
-        unidadeId: unidadeId !== "todas" ? unidadeId : undefined,
+        unidadeIds: unidadeId !== "todas" ? [unidadeId] : undefined,
         from: spec.temPeriodo && from ? from : undefined,
         to:   spec.temPeriodo && to   ? to   : undefined,
       });

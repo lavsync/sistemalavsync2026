@@ -48,12 +48,12 @@ export type OrdemServico = {
   concluida_em: string | null;
 };
 
-export async function listarMaquinas(unidadeId?: string): Promise<MaquinaComStats[]> {
+export async function listarMaquinas(unidadeIds?: string[]): Promise<MaquinaComStats[]> {
   const sb = await createClient();
   let q = sb.from("maquinas")
     .select("*, unidade:unidades(nome)")
     .order("codigo");
-  if (unidadeId) q = q.eq("unidade_id", unidadeId);
+  if (unidadeIds && unidadeIds.length > 0) q = q.in("unidade_id", unidadeIds);
   const { data: maqs, error } = await q;
   if (error) throw error;
 
@@ -65,14 +65,14 @@ export async function listarMaquinas(unidadeId?: string): Promise<MaquinaComStat
 
   // Stats: vendas dos últimos 30d agrupadas por equipamento_match (substring no campo equipamento)
   // Buscar todas as vendas dos últimos 30d das unidades das máquinas
-  const unidadeIds = Array.from(new Set(lista.map((m) => m.unidade_id)));
-  if (unidadeIds.length === 0) return [];
+  const unidadesDasMaquinas = Array.from(new Set(lista.map((m) => m.unidade_id)));
+  if (unidadesDasMaquinas.length === 0) return [];
 
   const desde30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const { data: vendas } = await sb
     .from("vendas")
     .select("equipamento, valor, data_venda, unidade_id")
-    .in("unidade_id", unidadeIds)
+    .in("unidade_id", unidadesDasMaquinas)
     .eq("situacao", "sucesso")
     .gte("data_venda", desde30);
 
@@ -112,21 +112,21 @@ export async function listarMaquinas(unidadeId?: string): Promise<MaquinaComStat
 }
 
 /** Lista equipamentos que aparecem nas vendas mas não têm máquina cadastrada (sugestões). */
-export async function detectarEquipamentosNaoCadastrados(unidadeId: string): Promise<Array<{ equipamento: string; vendas: number; ultima: string }>> {
+export async function detectarEquipamentosNaoCadastrados(unidadeIds: string[]): Promise<Array<{ equipamento: string; vendas: number; ultima: string }>> {
   const sb = await createClient();
   // Tudo do último mês
   const desde30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const { data: vendas } = await sb
     .from("vendas")
     .select("equipamento, data_venda")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .gte("data_venda", desde30)
     .not("equipamento", "is", null);
   const { data: maqs } = await sb
     .from("maquinas")
     .select("codigo, equipamento_match")
-    .eq("unidade_id", unidadeId);
+    .in("unidade_id", unidadeIds);
 
   type M = { codigo: string; equipamento_match: string | null };
   const matches = ((maqs ?? []) as M[]).map((m) => (m.equipamento_match ?? m.codigo).trim()).filter(Boolean);
@@ -146,13 +146,13 @@ export async function detectarEquipamentosNaoCadastrados(unidadeId: string): Pro
     .sort((a, b) => b.vendas - a.vendas);
 }
 
-export async function listarOrdensServico(unidadeId?: string, limite = 50): Promise<OrdemServico[]> {
+export async function listarOrdensServico(unidadeIds?: string[], limite = 50): Promise<OrdemServico[]> {
   const sb = await createClient();
   let q = sb.from("ordens_servico")
     .select("*, maquina:maquinas(codigo)")
     .order("aberta_em", { ascending: false })
     .limit(limite);
-  if (unidadeId) q = q.eq("unidade_id", unidadeId);
+  if (unidadeIds && unidadeIds.length > 0) q = q.in("unidade_id", unidadeIds);
   const { data, error } = await q;
   if (error) throw error;
   type Raw = Omit<OrdemServico, "maquina_codigo"> & { maquina: { codigo: string } | Array<{ codigo: string }> | null };

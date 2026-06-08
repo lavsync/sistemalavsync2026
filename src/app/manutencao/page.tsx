@@ -13,7 +13,7 @@ export default async function Page() {
     listarOrdensServico(),
   ]);
   const equipamentosNaoCadastrados = unidadeAtiva
-    ? await detectarEquipamentosNaoCadastrados(unidadeAtiva.id)
+    ? await detectarEquipamentosNaoCadastrados([unidadeAtiva.id])
     : [];
 
   return (

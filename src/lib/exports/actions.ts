@@ -9,7 +9,7 @@ export type TipoExport =
 
 export type ExportInput = {
   tipo: TipoExport;
-  unidadeId?: string;       // null = todas
+  unidadeIds?: string[];       // null = todas
   from?: string;            // YYYY-MM-DD
   to?: string;              // YYYY-MM-DD
 };
@@ -38,7 +38,7 @@ export async function gerarExport(input: ExportInput): Promise<ExportResult> {
       let q = sb.from("clientes")
         .select("nome, cpf, telefone, email, data_nascimento, genero, cadastrado_em, ultima_compra_em, compras_total_qtd, compras_total_valor, compras_90d_qtd, compras_90d_valor, compras_30d_qtd, compras_30d_valor, origem_sistema, unidade:unidades(nome)")
         .order("nome");
-      if (input.unidadeId) q = q.eq("unidade_id", input.unidadeId);
+      if (input.unidadeIds && input.unidadeIds.length > 0) q = q.in("unidade_id", input.unidadeIds);
       const { data, error } = await q;
       if (error) throw error;
       const rows = (data ?? []).map((r) => {
@@ -76,7 +76,7 @@ export async function gerarExport(input: ExportInput): Promise<ExportResult> {
       let q = sb.from("vendas")
         .select("data_venda, valor, valor_sem_desconto, situacao, tipo_pagamento, bandeira_cartao, tipo_cartao, tipo_servico, quantidade_ciclos, equipamento, pdv, cpf, nome_cliente, telefone_cliente, cupom_codigo, voucher_codigo, requisicao, provedor, adquirente, origem_sistema, unidade:unidades(nome)")
         .order("data_venda", { ascending: false });
-      if (input.unidadeId) q = q.eq("unidade_id", input.unidadeId);
+      if (input.unidadeIds && input.unidadeIds.length > 0) q = q.in("unidade_id", input.unidadeIds);
       if (input.from) q = q.gte("data_venda", `${input.from}T00:00:00`);
       if (input.to) q = q.lte("data_venda", `${input.to}T23:59:59`);
       const { data, error } = await q.limit(50000);
@@ -119,7 +119,7 @@ export async function gerarExport(input: ExportInput): Promise<ExportResult> {
       let q = sb.from("despesas")
         .select("descricao, valor, vencimento, pago_em, data_competencia, periodicidade, status, numero_documento, observacoes, unidade:unidades(nome), categoria:categorias_financeiras(nome), fornecedor:fornecedores(nome)")
         .order("vencimento", { ascending: false });
-      if (input.unidadeId) q = q.eq("unidade_id", input.unidadeId);
+      if (input.unidadeIds && input.unidadeIds.length > 0) q = q.in("unidade_id", input.unidadeIds);
       if (input.from) q = q.gte("vencimento", input.from);
       if (input.to) q = q.lte("vencimento", input.to);
       const { data, error } = await q;
@@ -162,7 +162,7 @@ export async function gerarExport(input: ExportInput): Promise<ExportResult> {
       let q = sb.from("ordens_servico")
         .select("aberta_em, titulo, descricao, tipo, prioridade, status, custo_estimado, custo_real, concluida_em, unidade:unidades(nome), maquina:maquinas(codigo)")
         .order("aberta_em", { ascending: false });
-      if (input.unidadeId) q = q.eq("unidade_id", input.unidadeId);
+      if (input.unidadeIds && input.unidadeIds.length > 0) q = q.in("unidade_id", input.unidadeIds);
       if (input.from) q = q.gte("aberta_em", `${input.from}T00:00:00`);
       if (input.to) q = q.lte("aberta_em", `${input.to}T23:59:59`);
       const { data, error } = await q;
@@ -201,7 +201,7 @@ export async function gerarExport(input: ExportInput): Promise<ExportResult> {
       let q = sb.from("marketing_campanhas")
         .select("nome, descricao, canal, segmento, template_mensagem, status, total_destinatarios, total_enviados, total_entregues, total_erros, criado_em, concluida_em, unidade:unidades(nome)")
         .order("criado_em", { ascending: false });
-      if (input.unidadeId) q = q.eq("unidade_id", input.unidadeId);
+      if (input.unidadeIds && input.unidadeIds.length > 0) q = q.in("unidade_id", input.unidadeIds);
       const { data, error } = await q;
       if (error) throw error;
       const rows = (data ?? []).map((r) => {
@@ -271,7 +271,7 @@ export async function gerarExport(input: ExportInput): Promise<ExportResult> {
       let q = sb.from("maquinas")
         .select("codigo, tipo, status, capacidade_kg, fabricante, modelo, serial_number, localizacao, equipamento_match, data_aquisicao, valor_aquisicao, ultima_manutencao_em, proxima_manutencao_em, observacoes, unidade:unidades(nome)")
         .order("codigo");
-      if (input.unidadeId) q = q.eq("unidade_id", input.unidadeId);
+      if (input.unidadeIds && input.unidadeIds.length > 0) q = q.in("unidade_id", input.unidadeIds);
       const { data, error } = await q;
       if (error) throw error;
       const rows = (data ?? []).map((r) => {
@@ -310,7 +310,7 @@ export async function gerarExport(input: ExportInput): Promise<ExportResult> {
       let q = sb.from(table)
         .select(`*, unidade:unidades(nome)`)
         .order("criado_em", { ascending: false });
-      if (input.unidadeId) q = q.eq("unidade_id", input.unidadeId);
+      if (input.unidadeIds && input.unidadeIds.length > 0) q = q.in("unidade_id", input.unidadeIds);
       const { data, error } = await q;
       if (error) throw error;
       const rows = (data ?? []).map((r) => {

@@ -38,12 +38,12 @@ export type ClienteAlvo = {
   dias_sem_compra: number | null;
 };
 
-export async function listarCampanhas(unidadeId?: string): Promise<Campanha[]> {
+export async function listarCampanhas(unidadeIds?: string[]): Promise<Campanha[]> {
   const sb = await createClient();
   let q = sb.from("marketing_campanhas")
     .select("*, unidade:unidades(nome)")
     .order("criado_em", { ascending: false });
-  if (unidadeId) q = q.eq("unidade_id", unidadeId);
+  if (unidadeIds && unidadeIds.length > 0) q = q.in("unidade_id", unidadeIds);
   const { data, error } = await q;
   if (error) throw error;
   type Raw = Omit<Campanha, "unidade_nome"> & { unidade: { nome: string } | Array<{ nome: string }> | null };
@@ -55,7 +55,7 @@ export async function listarCampanhas(unidadeId?: string): Promise<Campanha[]> {
 
 /** Conta clientes que se encaixam no segmento (preview da campanha) */
 export async function contarAlvosSegmento(
-  unidadeId: string,
+  unidadeIds: string[],
   segmento: SegmentoRFM,
   diasSemCompra?: number | null,
   ltvMinimo?: number | null,
@@ -63,7 +63,7 @@ export async function contarAlvosSegmento(
   const sb = await createClient();
   let q = sb.from("clientes")
     .select("id", { count: "exact", head: true })
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .not("telefone", "is", null);
 
   // Aplicar segmento RFM (heurísticas simples baseadas em compras_total_qtd e ultima_compra_em)
