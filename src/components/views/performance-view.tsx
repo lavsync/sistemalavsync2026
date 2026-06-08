@@ -21,6 +21,7 @@ import type {
 } from "@/lib/vendas-queries";
 import { ImportarVendasDialog } from "@/components/performance/importar-vendas-dialog";
 import { PerformanceMesFiltro } from "@/components/performance/mes-filtro";
+import { UnidadeMultiSwitcher } from "@/components/ui/unidade-multi-switcher";
 
 function fmtBRL(n: number): string {
   return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -35,11 +36,14 @@ function fmtMesRef(mesRef: string | null): string {
 }
 
 export function PerformanceView({
-  unidadeId, unidadeNome, resumo, pagamentos, diaSemana, evolucao,
+  unidadeId, unidadeNome, unidades, selecaoUnidades,
+  resumo, pagamentos, diaSemana, evolucao,
   cupons, cuponsMesRef, vouchers, vouchersMesRef,
 }: {
   unidadeId: string;
   unidadeNome: string;
+  unidades?: { id: string; nome: string }[];
+  selecaoUnidades?: { ids: string[]; todas: boolean; rotulo: string };
   resumo: ResumoPerformance;
   pagamentos: FaturamentoPagamentoSlice[];
   diaSemana: DiaSemanaPoint[];
@@ -55,7 +59,7 @@ export function PerformanceView({
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
       <PageHeader
-        eyebrow={`Performance · Unidade ${unidadeNome}`}
+        eyebrow={`Performance · ${unidadeNome}`}
         title="Vendas, ciclos e indicadores operacionais"
         subtitle={
           baseVazia
@@ -63,9 +67,20 @@ export function PerformanceView({
             : `${resumo.totalVendasBase.toLocaleString("pt-BR")} vendas na base · última importação ${resumo.ultimaImportacaoEm ? new Date(resumo.ultimaImportacaoEm).toLocaleString("pt-BR") : "—"}`
         }
         actions={
-          <Button size="sm" className="text-xs h-8 bg-gradient-to-r from-brand-cyan to-brand-blue text-white" onClick={() => setImportOpen(true)}>
-            <Upload className="w-3 h-3 mr-1" /> Importar vendas
-          </Button>
+          <div className="flex items-center gap-2">
+            {unidades && selecaoUnidades && (
+              <UnidadeMultiSwitcher
+                unidades={unidades}
+                selecionadas={selecaoUnidades.ids}
+                todasMarcadas={selecaoUnidades.todas}
+                rotulo={selecaoUnidades.rotulo}
+                variant="card"
+              />
+            )}
+            <Button size="sm" className="text-xs h-8 bg-gradient-to-r from-brand-cyan to-brand-blue text-white" onClick={() => setImportOpen(true)}>
+              <Upload className="w-3 h-3 mr-1" /> Importar vendas
+            </Button>
+          </div>
         }
       />
 

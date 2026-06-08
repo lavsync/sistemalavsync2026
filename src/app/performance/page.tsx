@@ -9,36 +9,37 @@ import {
   getVouchersUsados,
   parseMesRef,
 } from "@/lib/vendas-queries";
-import { getUnidadeAtiva } from "@/lib/unidade-ativa";
+import { listarUnidades } from "@/lib/unidade-ativa";
+import { parseSelecaoUnidades } from "@/lib/unidade-multi";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string }>;
+  searchParams: Promise<{ mes?: string; unidade?: string }>;
 }) {
   const sp = await searchParams;
-  // refMes só é passado quando o usuário escolhe um mês específico via ?mes=YYYY-MM.
-  // Senão, as queries ancoram no mês da última venda registrada (resolve unidades
-  // com base "atrasada" — ex: vendas até 25/05 mas mês corrente é junho).
   const refMes = sp?.mes ? parseMesRef(sp.mes) : undefined;
-  const unidade = await getUnidadeAtiva();
+  const unidades = await listarUnidades();
+  const selecao = parseSelecaoUnidades(sp?.unidade, unidades);
 
   const [resumo, pagamentos, diaSemana, evolucao, cupons, vouchers] = await Promise.all([
-    getResumoPerformance(unidade.id, refMes ?? new Date()),
-    getFaturamentoPorPagamento(unidade.id, refMes ?? new Date()),
-    getPorDiaSemana(unidade.id, refMes),
-    getEvolucaoMensal(unidade.id, 12),
-    getCuponsUsados(unidade.id, refMes),
-    getVouchersUsados(unidade.id, refMes),
+    getResumoPerformance(selecao.ids, refMes ?? new Date()),
+    getFaturamentoPorPagamento(selecao.ids, refMes ?? new Date()),
+    getPorDiaSemana(selecao.ids, refMes),
+    getEvolucaoMensal(selecao.ids, 12),
+    getCuponsUsados(selecao.ids, refMes),
+    getVouchersUsados(selecao.ids, refMes),
   ]);
 
   return (
     <AppShell>
       <PerformanceView
-        unidadeId={unidade.id}
-        unidadeNome={unidade.nome}
+        unidadeId={selecao.ids[0] ?? ""}
+        unidadeNome={selecao.rotulo}
+        unidades={unidades}
+        selecaoUnidades={selecao}
         resumo={resumo}
         pagamentos={pagamentos}
         diaSemana={diaSemana}

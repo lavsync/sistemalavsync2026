@@ -59,7 +59,7 @@ export function parseMesRef(mes?: string | null): Date {
   return new Date(Number(y), Number(mm) - 1, 15, 12, 0, 0);
 }
 
-export async function getResumoPerformance(unidadeId: string, refMes: Date = new Date()): Promise<ResumoPerformance> {
+export async function getResumoPerformance(unidadeIds: string[], refMes: Date = new Date()): Promise<ResumoPerformance> {
   const supabase = await createClient();
   const iniMes = inicioMes(refMes);
   const fimMesAtual = fimMes(refMes);
@@ -70,38 +70,38 @@ export async function getResumoPerformance(unidadeId: string, refMes: Date = new
     supabase
       .from("vendas")
       .select("valor, tipo_servico, tipo_pagamento, cupom_codigo, voucher_codigo, quantidade_ciclos")
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .eq("situacao", "sucesso")
       .gte("data_venda", iniMes.toISOString())
       .lte("data_venda", fimMesAtual.toISOString()),
     supabase
       .from("vendas")
       .select("valor, tipo_servico, quantidade_ciclos")
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .eq("situacao", "sucesso")
       .gte("data_venda", iniMesAnt.toISOString())
       .lte("data_venda", fimMesAnt.toISOString()),
     supabase
       .from("clientes")
       .select("id", { count: "exact", head: true })
-      .eq("unidade_id", unidadeId),
+      .in("unidade_id", unidadeIds),
     supabase
       .from("clientes")
       .select("id", { count: "exact", head: true })
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .gte("cadastrado_em", iniMes.toISOString())
       .lte("cadastrado_em", fimMesAtual.toISOString()),
     supabase
       .from("vendas_importacoes")
       .select("concluido_em")
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .order("concluido_em", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle(),
     supabase
       .from("vendas")
       .select("id", { count: "exact", head: true })
-      .eq("unidade_id", unidadeId),
+      .in("unidade_id", unidadeIds),
   ]);
 
   if (vendasMes.error && !isMissingTable(vendasMes.error)) throw vendasMes.error;
@@ -204,14 +204,14 @@ const PAG_COR: Record<string, string> = {
 };
 
 export async function getFaturamentoPorPagamento(
-  unidadeId: string,
+  unidadeIds: string[],
   refMes?: Date,
 ): Promise<FaturamentoPagamentoSlice[]> {
   const supabase = await createClient();
   let q = supabase
     .from("vendas")
     .select("tipo_pagamento, tipo_cartao, valor")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso");
   if (refMes) {
     q = q.gte("data_venda", inicioMes(refMes).toISOString())
@@ -251,7 +251,7 @@ export type DiaSemanaPoint = { dia: string; clientes: number; faturamento: numbe
 const DIAS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 export async function getPorDiaSemana(
-  unidadeId: string,
+  unidadeIds: string[],
   _refMes?: Date,                  // ignorado — subtítulo diz "últimos 30d"
   diasJanela: number = 30,
 ): Promise<DiaSemanaPoint[]> {
@@ -261,7 +261,7 @@ export async function getPorDiaSemana(
   const { data: ultimaVenda } = await supabase
     .from("vendas")
     .select("data_venda")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .order("data_venda", { ascending: false })
     .limit(1)
@@ -272,7 +272,7 @@ export async function getPorDiaSemana(
   const q = supabase
     .from("vendas")
     .select("data_venda, valor, cpf")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .gte("data_venda", desde.toISOString())
     .lte("data_venda", ate.toISOString());
@@ -306,13 +306,13 @@ export type EvolucaoMensalPoint = {
 
 const MESES_ABBR = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
-export async function getEvolucaoMensal(unidadeId: string, meses: number = 12): Promise<EvolucaoMensalPoint[]> {
+export async function getEvolucaoMensal(unidadeIds: string[], meses: number = 12): Promise<EvolucaoMensalPoint[]> {
   const supabase = await createClient();
   // Âncora = mês da última venda (evita exibir meses futuros sem dados).
   const { data: ultima } = await supabase
     .from("vendas")
     .select("data_venda")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .order("data_venda", { ascending: false })
     .limit(1)
@@ -322,7 +322,7 @@ export async function getEvolucaoMensal(unidadeId: string, meses: number = 12): 
   const { data, error } = await supabase
     .from("vendas")
     .select("data_venda, valor, cpf")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .gte("data_venda", inicio.toISOString());
   if (error) {
@@ -367,7 +367,7 @@ export type CupomUso = {
 
 export type CuponsUsadosResult = { items: CupomUso[]; mesRef: string | null };
 
-export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise<CuponsUsadosResult> {
+export async function getCuponsUsados(unidadeIds: string[], refMes?: Date): Promise<CuponsUsadosResult> {
   const supabase = await createClient();
   // Se refMes não foi especificado, ancorar no mês do ÚLTIMO USO de cupom
   // (não no mês da última venda — Castelo tem vendas até 05/26 mas cupons só até 10/25).
@@ -376,7 +376,7 @@ export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise
     const { data: ult } = await supabase
       .from("vendas")
       .select("data_venda")
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .eq("situacao", "sucesso")
       .not("cupom_codigo", "is", null)
       .order("data_venda", { ascending: false })
@@ -388,7 +388,7 @@ export async function getCuponsUsados(unidadeId: string, refMes?: Date): Promise
   const q = supabase
     .from("vendas")
     .select("cupom_codigo, valor, valor_sem_desconto")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .not("cupom_codigo", "is", null)
     .gte("data_venda", inicioMes(refReal).toISOString())
@@ -425,7 +425,7 @@ export type VoucherUso = {
 
 export type VouchersUsadosResult = { items: VoucherUso[]; mesRef: string | null };
 
-export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promise<VouchersUsadosResult> {
+export async function getVouchersUsados(unidadeIds: string[], refMes?: Date): Promise<VouchersUsadosResult> {
   const supabase = await createClient();
   // Mesma lógica do cupom: ancorar no mês do ÚLTIMO USO de voucher.
   let refReal = refMes;
@@ -433,7 +433,7 @@ export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promi
     const { data: ult } = await supabase
       .from("vendas")
       .select("data_venda")
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .eq("situacao", "sucesso")
       .not("voucher_codigo", "is", null)
       .order("data_venda", { ascending: false })
@@ -445,7 +445,7 @@ export async function getVouchersUsados(unidadeId: string, refMes?: Date): Promi
   const q = supabase
     .from("vendas")
     .select("voucher_codigo, voucher_categoria, valor")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .not("voucher_codigo", "is", null)
     .gte("data_venda", inicioMes(refReal).toISOString())
