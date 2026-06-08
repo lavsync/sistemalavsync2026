@@ -29,6 +29,7 @@ import { ClientesPaginacao } from "@/components/clientes/clientes-paginacao";
 import { DistribuicaoGenero } from "@/components/clientes/distribuicao-genero";
 import { NovosClientes } from "@/components/clientes/novos-clientes";
 import { TopClientesMes } from "@/components/clientes/top-clientes-mes";
+import { UnidadeMultiSwitcher } from "@/components/ui/unidade-multi-switcher";
 
 // Curva de retenção sintética (futuro: cohort real)
 const RETENCAO_PLACEHOLDER = [
@@ -52,6 +53,8 @@ type FiltrosAtivos = {
 export function ClientesView({
   unidadeId,
   unidadeNome,
+  unidades,
+  selecaoUnidades,
   kpis,
   segmentos,
   topClientes,
@@ -68,6 +71,8 @@ export function ClientesView({
 }: {
   unidadeId: string;
   unidadeNome: string;
+  unidades?: { id: string; nome: string }[];
+  selecaoUnidades?: { ids: string[]; todas: boolean; rotulo: string };
   kpis: ClientesKpis;
   segmentos: SegmentoRFM[];
   topClientes: TopCliente[];
@@ -94,21 +99,32 @@ export function ClientesView({
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
       <PageHeader
-        eyebrow={`Clientes · Unidade ${unidadeNome}`}
+        eyebrow={`Clientes · ${unidadeNome}`}
         title="Base ativa, recorrência e fidelização"
         subtitle={
           baseVazia
-            ? "Nenhum cliente cadastrado ainda nesta unidade. Importe a planilha pra começar."
+            ? "Nenhum cliente cadastrado ainda. Importe a planilha pra começar."
             : `${totalClientes} cliente${totalClientes === 1 ? "" : "s"} · segmentação RFM · novos vs recorrentes · top por LTV · oportunidades de win-back.`
         }
         actions={
-          <Button
-            size="sm"
-            className="text-xs h-8 bg-gradient-to-r from-brand-cyan to-brand-blue text-white hover:opacity-90"
-            onClick={() => setImportOpen(true)}
-          >
-            <Upload className="w-3 h-3 mr-1" /> Importar planilha
-          </Button>
+          <div className="flex items-center gap-2">
+            {unidades && selecaoUnidades && (
+              <UnidadeMultiSwitcher
+                unidades={unidades}
+                selecionadas={selecaoUnidades.ids}
+                todasMarcadas={selecaoUnidades.todas}
+                rotulo={selecaoUnidades.rotulo}
+                variant="card"
+              />
+            )}
+            <Button
+              size="sm"
+              className="text-xs h-8 bg-gradient-to-r from-brand-cyan to-brand-blue text-white hover:opacity-90"
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="w-3 h-3 mr-1" /> Importar planilha
+            </Button>
+          </div>
         }
       />
 

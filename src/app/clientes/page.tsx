@@ -15,7 +15,8 @@ import {
   type OrdenacaoFiltro,
   type PeriodoNovos,
 } from "@/lib/clientes-queries";
-import { getUnidadeAtiva } from "@/lib/unidade-ativa";
+import { listarUnidades } from "@/lib/unidade-ativa";
+import { parseSelecaoUnidades } from "@/lib/unidade-multi";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +40,12 @@ export default async function Page({
     ord?: string;
     novos?: string;
     dia?: string;
+    unidade?: string;
   }>;
 }) {
   const sp = await searchParams;
-  const unidade = await getUnidadeAtiva();
+  const unidades = await listarUnidades();
+  const selecao = parseSelecaoUnidades(sp?.unidade, unidades);
 
   const pagina = Math.max(1, parseInt(sp?.page ?? "1", 10) || 1);
   const offset = (pagina - 1) * PAGE_SIZE;
@@ -63,22 +66,24 @@ export default async function Page({
   const [
     kpis, rfm, top, topMes, crescimento, listagem, baseTotal, generoDist, novosResumo,
   ] = await Promise.all([
-    getClientesKpis(unidade.id),
-    getSegmentacaoRFM(unidade.id),
-    getTopClientes(unidade.id, 10),
-    getTopClientesMes(unidade.id, 10),
-    getCrescimentoSemanal(unidade.id, 12),
-    listarClientes(unidade.id, { ...filtros, limit: PAGE_SIZE, offset }),
-    listarClientes(unidade.id, { limit: 1, offset: 0 }),
-    getDistribuicaoGenero(unidade.id),
-    getNovosClientes(unidade.id, periodoNovos, 200, diaNovos),
+    getClientesKpis(selecao.ids),
+    getSegmentacaoRFM(selecao.ids),
+    getTopClientes(selecao.ids, 10),
+    getTopClientesMes(selecao.ids, 10),
+    getCrescimentoSemanal(selecao.ids, 12),
+    listarClientes(selecao.ids, { ...filtros, limit: PAGE_SIZE, offset }),
+    listarClientes(selecao.ids, { limit: 1, offset: 0 }),
+    getDistribuicaoGenero(selecao.ids),
+    getNovosClientes(selecao.ids, periodoNovos, 200, diaNovos),
   ]);
 
   return (
     <AppShell>
       <ClientesView
-        unidadeId={unidade.id}
-        unidadeNome={unidade.nome}
+        unidadeId={selecao.ids[0] ?? ""}
+        unidadeNome={selecao.rotulo}
+        unidades={unidades}
+        selecaoUnidades={selecao}
         kpis={kpis}
         segmentos={rfm}
         topClientes={top}

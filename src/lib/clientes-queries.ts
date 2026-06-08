@@ -76,7 +76,7 @@ export type ListarClientesOpts = {
 };
 
 export async function listarClientes(
-  unidadeId: string,
+  unidadeIds: string[],
   opts?: ListarClientesOpts,
 ): Promise<{ rows: ClienteRow[]; total: number }> {
   const supabase = await createClient();
@@ -86,7 +86,7 @@ export async function listarClientes(
       "id, nome, cpf, email, telefone, data_nascimento, genero, cadastrado_em, ultima_compra_em, snapshot_em, compras_total_qtd, compras_total_valor, compras_90d_qtd, compras_90d_valor, compras_30d_qtd, compras_30d_valor, compras_7d_qtd, compras_7d_valor, origem_sistema, observacoes",
       { count: "exact" },
     )
-    .eq("unidade_id", unidadeId);
+    .in("unidade_id", unidadeIds);
 
   // ─── Filtros ──────────────────────────────────────────────────────────────
   if (opts?.busca && opts.busca.trim()) {
@@ -166,12 +166,12 @@ export async function listarClientes(
   return { rows: (data ?? []) as ClienteRow[], total: count ?? 0 };
 }
 
-export async function getClientesKpis(unidadeId: string): Promise<ClientesKpis> {
+export async function getClientesKpis(unidadeIds: string[]): Promise<ClientesKpis> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clientes")
     .select("ultima_compra_em, cadastrado_em, compras_total_valor, compras_total_qtd, compras_90d_qtd")
-    .eq("unidade_id", unidadeId);
+    .in("unidade_id", unidadeIds);
   if (error) {
     if (isMissingTable(error)) {
       return { total: 0, ativos90d: 0, emRisco: 0, dormentes: 0, novosUltimos30d: 0, ltvMedio: 0, ticketMedio: 0 };
@@ -240,12 +240,12 @@ const SEGMENT_COLORS: Record<string, string> = {
   Novos: "var(--brand-blue)",
 };
 
-export async function getSegmentacaoRFM(unidadeId: string): Promise<SegmentoRFM[]> {
+export async function getSegmentacaoRFM(unidadeIds: string[]): Promise<SegmentoRFM[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clientes")
     .select("ultima_compra_em, cadastrado_em, compras_total_valor, compras_total_qtd, compras_90d_qtd")
-    .eq("unidade_id", unidadeId);
+    .in("unidade_id", unidadeIds);
   if (error) {
     if (isMissingTable(error)) return [];
     throw error;
@@ -331,7 +331,7 @@ export type TopClienteMes = {
 };
 
 export async function getTopClientesMes(
-  unidadeId: string,
+  unidadeIds: string[],
   limit: number = 10,
 ): Promise<TopClienteMes[]> {
   const supabase = await createClient();
@@ -341,7 +341,7 @@ export async function getTopClientesMes(
   const { data, error } = await supabase
     .from("clientes")
     .select("id, nome, telefone, compras_30d_qtd, compras_30d_valor, ultima_compra_em, origem_sistema")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .gt("compras_30d_valor", 0)
     .order("compras_30d_valor", { ascending: false, nullsFirst: false })
     .limit(limit);
@@ -371,14 +371,14 @@ export async function getTopClientesMes(
 }
 
 export async function getTopClientes(
-  unidadeId: string,
+  unidadeIds: string[],
   limit: number = 10,
 ): Promise<TopCliente[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clientes")
     .select("id, nome, telefone, compras_total_qtd, compras_total_valor, ultima_compra_em")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .order("compras_total_valor", { ascending: false, nullsFirst: false })
     .limit(limit);
   if (error) {
@@ -440,12 +440,12 @@ const GENERO_CORES: Record<GeneroSlice["key"], string> = {
   "Nao informado": "var(--muted-foreground)",
 };
 
-export async function getDistribuicaoGenero(unidadeId: string): Promise<GeneroSlice[]> {
+export async function getDistribuicaoGenero(unidadeIds: string[]): Promise<GeneroSlice[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clientes")
     .select("genero")
-    .eq("unidade_id", unidadeId);
+    .in("unidade_id", unidadeIds);
   if (error) {
     if (isMissingTable(error)) return [];
     throw error;
@@ -512,7 +512,7 @@ function inicioDeHoje(): Date {
 }
 
 export async function getNovosClientes(
-  unidadeId: string,
+  unidadeIds: string[],
   periodo: PeriodoNovos,
   limit: number = 200,
   dia?: string, // YYYY-MM-DD (usado quando periodo === "data")
@@ -544,7 +544,7 @@ export async function getNovosClientes(
         "id, nome, cpf, telefone, email, genero, cadastrado_em, ultima_compra_em, compras_total_qtd, compras_total_valor, origem_sistema",
         { count: "exact" },
       )
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .gte("cadastrado_em", inicio.toISOString())
       .lte("cadastrado_em", fim.toISOString())
       .order("cadastrado_em", { ascending: false })
@@ -552,7 +552,7 @@ export async function getNovosClientes(
     supabase
       .from("clientes")
       .select("id", { count: "exact", head: true })
-      .eq("unidade_id", unidadeId)
+      .in("unidade_id", unidadeIds)
       .gte("cadastrado_em", inicioAnterior.toISOString())
       .lt("cadastrado_em", inicio.toISOString()),
   ]);
@@ -595,7 +595,7 @@ export type CrescimentoSemanal = { semana: string; novos: number; recorrentes: n
  * Chave do cliente = cliente_id (preferencial) ou CPF (fallback pra vendas sem vínculo).
  */
 export async function getCrescimentoSemanal(
-  unidadeId: string,
+  unidadeIds: string[],
   semanas: number = 12,
 ): Promise<CrescimentoSemanal[]> {
   const supabase = await createClient();
@@ -614,7 +614,7 @@ export async function getCrescimentoSemanal(
   const { data, error } = await supabase
     .from("vendas")
     .select("cliente_id, cpf, data_venda")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso");
   if (error) {
     if (isMissingTable(error)) return [];
