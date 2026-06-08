@@ -7,6 +7,7 @@
 // Retorna preview + origemDetectada + modoSugerido.
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { inferirGenero } from "@/lib/genero/inferir";
 
 export const runtime = "nodejs";
 
@@ -285,7 +286,8 @@ export async function POST(req: NextRequest) {
       email: toStr(get("email")) || null,
       telefone,
       data_nascimento: toDateOnly(get("data_nascimento")),
-      genero: toStr(get("genero")) || null,
+      // MAXPAN não exporta gênero — inferir pelo primeiro nome (BR)
+      genero: toStr(get("genero")) || inferirGenero(nome),
       cadastrado_em: toIsoDate(get("cadastrado_em")),
       ultima_compra_em: toIsoDate(get("ultima_compra_em")),
       compras_total_qtd: Math.round(toNum(get("compras_total_qtd"))),

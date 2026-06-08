@@ -52,7 +52,12 @@ type ClienteExistente = {
 };
 
 function normalizarCpfDigitos(cpf: string): string {
-  return cpf.replace(/\D/g, "");
+  // MAXPAN exporta CPF numérico; Excel/Sheets podem suprimir zeros à esquerda
+  // (Ex: "01903311608" vira 1903311608 quando salvo como número).
+  // Pad com zeros à esquerda quando 9 ou 10 dígitos pra recuperar.
+  let d = cpf.replace(/\D/g, "");
+  if (d.length === 9 || d.length === 10) d = d.padStart(11, "0");
+  return d;
 }
 
 export async function importarClientes(
