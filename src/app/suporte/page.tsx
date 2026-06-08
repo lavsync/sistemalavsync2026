@@ -1,23 +1,22 @@
 import { AppShell } from "@/components/shell/app-shell";
-import { ModulePlaceholder } from "@/components/views/module-placeholder";
+import { SuporteView } from "@/components/suporte/suporte-view";
+import { listarTickets } from "@/lib/suporte/queries";
+import { listarUnidades, getUnidadeAtiva } from "@/lib/unidade-ativa";
 
-export default function Page() {
+export const dynamic = "force-dynamic";
+
+export default async function Page() {
+  const [tickets, unidades, unidadeAtiva] = await Promise.all([
+    listarTickets(),
+    listarUnidades(),
+    getUnidadeAtiva(),
+  ]);
   return (
     <AppShell>
-      <ModulePlaceholder
-        eyebrow="Suporte"
-        title="Central de chamados e conhecimento"
-        subtitle="Abrir chamados, acompanhar SLA, base de conhecimento e tutoriais — com triagem automática da CLOCK."
-        iconName="life-buoy"
-        components={[
-          "Abrir chamado",
-          "Histórico de chamados",
-          "Status do atendimento",
-          "Base de conhecimento",
-          "Tutoriais",
-          "FAQ",
-          "Canal de suporte",
-        ]}
+      <SuporteView
+        tickets={tickets}
+        unidades={unidades}
+        unidadeAtivaId={unidadeAtiva?.id ?? unidades[0]?.id ?? ""}
       />
     </AppShell>
   );
