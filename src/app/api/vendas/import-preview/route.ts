@@ -205,6 +205,26 @@ function detectarOrigem(arquivo: string): "maxpan" | "vm_tecnologia" | "manual" 
   return "maxpan";
 }
 
+/** Detecta separador majoritário num CSV (; ou , ou \t). */
+function detectarSeparador(texto: string): string {
+  const linhas = texto.split(/\r?\n/).slice(0, 20).filter((l) => l.trim());
+  const cont = { ";": 0, ",": 0, "\t": 0, "|": 0 };
+  for (const l of linhas) {
+    for (const c of [";", ",", "\t", "|"] as const) {
+      cont[c] += (l.match(new RegExp(`\\${c === "\t" ? "t" : c}`, "g")) ?? []).length;
+    }
+  }
+  // ; tem prioridade em pt-BR · senão pega o mais frequente
+  if (cont[";"] >= cont[","] && cont[";"] >= cont["\t"]) return ";";
+  if (cont["\t"] > cont[","]) return "\t";
+  return ",";
+}
+
+/** Remove BOM UTF-8 do início se houver */
+function stripBom(s: string): string {
+  return s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
+}
+
 export async function POST(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("file");
@@ -213,9 +233,18 @@ export async function POST(req: NextRequest) {
   }
 
   const buf = Buffer.from(await file.arrayBuffer());
+  const isCsv = /\.csv$/i.test(file.name) || file.type === "text/csv" || file.type === "application/csv";
+
   let wb: XLSX.WorkBook;
   try {
-    wb = XLSX.read(buf, { type: "buffer", cellDates: true });
+    if (isCsv) {
+      // CSV: decodifica como texto, detecta separador, passa o texto pro SheetJS
+      const txt = stripBom(buf.toString("utf-8"));
+      const sep = detectarSeparador(txt);
+      wb = XLSX.read(txt, { type: "string", raw: false, cellDates: true, FS: sep });
+    } else {
+      wb = XLSX.read(buf, { type: "buffer", cellDates: true });
+    }
   } catch (e) {
     return NextResponse.json(
       { error: "Falha ao abrir arquivo: " + (e instanceof Error ? e.message : String(e)) },

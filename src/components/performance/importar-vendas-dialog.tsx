@@ -80,6 +80,8 @@ export function ImportarVendasDialog({
     accept: {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
       "application/vnd.ms-excel": [".xls"],
+      "text/csv": [".csv"],
+      "application/csv": [".csv"],
     },
     multiple: false,
     onDrop: (a) => a[0] && onDropFile(a[0]),
@@ -133,7 +135,7 @@ export function ImportarVendasDialog({
                         <Dialog.Description className="text-[12px] text-muted-foreground mt-1 flex items-center gap-2">
                           Destino: <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan font-semibold"><Building2 className="w-3 h-3" /> {unidadeNome}</span>
                           <span>·</span>
-                          <span>Suporta relatórios MAXPAN/VM (XLSX 27 colunas)</span>
+                          <span>Suporta relatórios MAXPAN/VM (XLSX, XLS ou CSV — 27 colunas)</span>
                         </Dialog.Description>
                       </div>
                       <Dialog.Close asChild>
@@ -167,7 +169,7 @@ export function ImportarVendasDialog({
                               </div>
                               <div className="text-[12px] text-muted-foreground mt-1">
                                 {file ? `${(file.size / 1024).toFixed(1)} KB · ${preview?.total ?? "?"} vendas detectadas`
-                                  : "ou clique para escolher · XLSX MAXPAN/VM"}
+                                  : "ou clique para escolher · XLSX, XLS ou CSV (MAXPAN/VM)"}
                               </div>
                             </div>
                           </div>
