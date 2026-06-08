@@ -11,6 +11,7 @@ import {
   type Periodo,
 } from "@/lib/dashboard/queries";
 import { gerarInsightsUnidade } from "@/lib/insights/engine";
+import { parseSelecaoUnidades } from "@/lib/unidade-multi";
 
 export const dynamic = "force-dynamic";
 
@@ -26,10 +27,7 @@ const PERIODOS_VALIDOS: Periodo[] = ["hoje", "ontem", "7d", "30d", "mes", "90d",
 export default async function Page({ searchParams }: { searchParams: SP }) {
   const params = await searchParams;
   const unidades = await listarUnidades();
-  const unidadeAtiva =
-    params.unidade && unidades.some((u) => u.id === params.unidade)
-      ? params.unidade
-      : unidades[0]?.id ?? "";
+  const selecao = parseSelecaoUnidades(params.unidade, unidades);
 
   const periodo: Periodo = PERIODOS_VALIDOS.includes(params.periodo as Periodo)
     ? (params.periodo as Periodo)
@@ -38,19 +36,22 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
   const janela = resolverJanela(periodo, params.from, params.to);
 
   const [kpis, timeseries, split, hourly, machines, insights] = await Promise.all([
-    getDashboardKpis(unidadeAtiva, janela),
-    getRevenueTimeseries(unidadeAtiva, janela),
-    getRevenueSplit(unidadeAtiva, janela),
-    getHourlyOccupation(unidadeAtiva, janela),
-    getMachinesStatus(unidadeAtiva, janela),
-    gerarInsightsUnidade(unidadeAtiva).catch(() => []),
+    getDashboardKpis(selecao.ids, janela),
+    getRevenueTimeseries(selecao.ids, janela),
+    getRevenueSplit(selecao.ids, janela),
+    getHourlyOccupation(selecao.ids, janela),
+    getMachinesStatus(selecao.ids, janela),
+    // Insights só fazem sentido pra UMA unidade (heurísticas específicas)
+    selecao.ids.length === 1
+      ? gerarInsightsUnidade(selecao.ids[0]).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   return (
     <AppShell>
       <DashboardView
         unidades={unidades}
-        unidadeAtiva={unidadeAtiva}
+        selecaoUnidades={selecao}
         periodo={periodo}
         from={params.from}
         to={params.to}

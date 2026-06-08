@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { Building2, Calendar, ChevronDown, Check } from "lucide-react";
+import { Calendar, ChevronDown, Check } from "lucide-react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { Periodo, Unidade } from "@/lib/dashboard/queries";
+import type { SelecaoUnidades } from "@/lib/unidade-multi";
+import { UnidadeMultiSwitcher } from "@/components/ui/unidade-multi-switcher";
 
 const PRESETS: Array<{ key: Periodo; label: string }> = [
   { key: "hoje",   label: "Hoje" },
@@ -19,14 +21,14 @@ const PRESETS: Array<{ key: Periodo; label: string }> = [
 
 export function DashboardFilters({
   unidades,
-  unidadeAtiva,
+  selecaoUnidades,
   periodo,
   from,
   to,
   labelJanela,
 }: {
   unidades: Unidade[];
-  unidadeAtiva: string;
+  selecaoUnidades: SelecaoUnidades;
   periodo: Periodo;
   from?: string;
   to?: string;
@@ -63,44 +65,15 @@ export function DashboardFilters({
     setCustomOpen(false);
   }
 
-  const unidadeNome = unidades.find((u) => u.id === unidadeAtiva)?.nome ?? "—";
-
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {/* Unidade */}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/20 text-white text-[12px] font-semibold transition-smooth">
-            <Building2 className="w-3.5 h-3.5" />
-            <span>{unidadeNome}</span>
-            <ChevronDown className="w-3 h-3 opacity-70" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            sideOffset={6}
-            className="z-50 min-w-[200px] rounded-lg border border-border bg-popover p-1 shadow-xl"
-          >
-            <div className="px-2 py-1 text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Selecionar unidade</div>
-            {unidades.map((u) => (
-              <DropdownMenu.Item
-                key={u.id}
-                onSelect={() => push({ unidade: u.id })}
-                className={cn(
-                  "flex items-center gap-2 px-2 py-1.5 rounded text-[12px] cursor-pointer outline-none",
-                  u.id === unidadeAtiva
-                    ? "bg-brand-cyan/15 text-brand-cyan font-semibold"
-                    : "hover:bg-secondary"
-                )}
-              >
-                <Building2 className="w-3 h-3" />
-                <span className="flex-1">{u.nome}</span>
-                {u.id === unidadeAtiva && <Check className="w-3 h-3" />}
-              </DropdownMenu.Item>
-            ))}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+      <UnidadeMultiSwitcher
+        unidades={unidades}
+        selecionadas={selecaoUnidades.ids}
+        todasMarcadas={selecaoUnidades.todas}
+        rotulo={selecaoUnidades.rotulo}
+        variant="header"
+      />
 
       {/* Período */}
       <DropdownMenu.Root>

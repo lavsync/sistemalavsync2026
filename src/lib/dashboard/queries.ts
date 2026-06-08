@@ -95,12 +95,13 @@ export type DashboardKpis = {
 
 type VendaLite = { data_venda: string; valor: number | string; cpf: string | null; tipo_servico: string | null };
 
-async function fetchVendasJanela(unidadeId: string, j: Janela): Promise<VendaLite[]> {
+async function fetchVendasJanela(unidadeIds: string[], j: Janela): Promise<VendaLite[]> {
+  if (!unidadeIds || unidadeIds.length === 0) return [];
   const sb = await createClient();
   const { data, error } = await sb
     .from("vendas")
     .select("data_venda, valor, cpf, tipo_servico")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .eq("situacao", "sucesso")
     .gte("data_venda", j.from.toISOString())
     .lte("data_venda", j.to.toISOString());
@@ -108,11 +109,11 @@ async function fetchVendasJanela(unidadeId: string, j: Janela): Promise<VendaLit
   return (data ?? []) as VendaLite[];
 }
 
-export async function getDashboardKpis(unidadeId: string, j: Janela): Promise<DashboardKpis> {
+export async function getDashboardKpis(unidadeIds: string[], j: Janela): Promise<DashboardKpis> {
   const ja = janelaAnterior(j);
   const [atual, anterior] = await Promise.all([
-    fetchVendasJanela(unidadeId, j),
-    fetchVendasJanela(unidadeId, ja),
+    fetchVendasJanela(unidadeIds, j),
+    fetchVendasJanela(unidadeIds, ja),
   ]);
   function agregar(rows: VendaLite[]) {
     let fat = 0; let qtd = 0;
@@ -140,8 +141,8 @@ export async function getDashboardKpis(unidadeId: string, j: Janela): Promise<Da
 // ─── Timeseries (bucket diário) ────────────────────────────────────
 export type RevenuePoint = { day: string; rotulo: string; value: number; projected: number };
 
-export async function getRevenueTimeseries(unidadeId: string, j: Janela): Promise<RevenuePoint[]> {
-  const rows = await fetchVendasJanela(unidadeId, j);
+export async function getRevenueTimeseries(unidadeIds: string[], j: Janela): Promise<RevenuePoint[]> {
+  const rows = await fetchVendasJanela(unidadeIds, j);
   const dias = diasNaJanela(j);
   // bucket por dia ISO
   const buckets = new Map<string, number>();
@@ -213,8 +214,8 @@ const TIPO_COLOR: Record<string, string> = {
   outros: "var(--muted-foreground)",
 };
 
-export async function getRevenueSplit(unidadeId: string, j: Janela): Promise<RevenueSplitSlice[]> {
-  const rows = await fetchVendasJanela(unidadeId, j);
+export async function getRevenueSplit(unidadeIds: string[], j: Janela): Promise<RevenueSplitSlice[]> {
+  const rows = await fetchVendasJanela(unidadeIds, j);
   const totais: Record<string, number> = {};
   let grand = 0;
   for (const r of rows) {
@@ -238,8 +239,8 @@ export async function getRevenueSplit(unidadeId: string, j: Janela): Promise<Rev
 // ─── Ocupação por hora (média na janela) ───────────────────────────
 export type HourlyOccupationPoint = { hour: string; value: number; vendas: number };
 
-export async function getHourlyOccupation(unidadeId: string, j: Janela): Promise<HourlyOccupationPoint[]> {
-  const rows = await fetchVendasJanela(unidadeId, j);
+export async function getHourlyOccupation(unidadeIds: string[], j: Janela): Promise<HourlyOccupationPoint[]> {
+  const rows = await fetchVendasJanela(unidadeIds, j);
   // count por hora (0..23) + count de dias únicos pra média diária
   const porHora = new Array<number>(24).fill(0);
   const diasUnicos = new Set<string>();
@@ -271,19 +272,20 @@ export type MachineRow = {
   utilization: number;
 };
 
-export async function getMachinesStatus(unidadeId: string, j: Janela): Promise<MachineRow[]> {
+export async function getMachinesStatus(unidadeIds: string[], j: Janela): Promise<MachineRow[]> {
+  if (!unidadeIds || unidadeIds.length === 0) return [];
   const sb = await createClient();
   const { data: maqs } = await sb
     .from("maquinas")
     .select("id, codigo, tipo, status")
-    .eq("unidade_id", unidadeId)
+    .in("unidade_id", unidadeIds)
     .order("codigo");
   type M = { id: string; codigo: string; tipo: string; status: string };
   const list = (maqs ?? []) as M[];
   if (list.length === 0) return [];
 
   // Conta vendas por equipamento string (que vem com formato "TOT10L-00/176246 (MAC)")
-  const rows = await fetchVendasJanela(unidadeId, j);
+  const rows = await fetchVendasJanela(unidadeIds, j);
   void rows; // sem mapping confiável equipamento→maquina, vamos só utilization base
   return list.map((m, i) => ({
     id: m.codigo,

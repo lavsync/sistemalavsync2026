@@ -20,6 +20,7 @@ import type {
   RevenueSplitSlice, Unidade,
 } from "@/lib/dashboard/queries";
 import type { Insight, InsightIcone } from "@/lib/insights/engine";
+import type { SelecaoUnidades } from "@/lib/unidade-multi";
 import { DashboardFilters } from "@/components/dashboard/filters";
 
 const fmtBRL = (v: number) =>
@@ -35,7 +36,7 @@ const fmtDateBR = (d: Date) =>
 
 export type DashboardViewProps = {
   unidades: Unidade[];
-  unidadeAtiva: string;
+  selecaoUnidades: SelecaoUnidades;
   periodo: Periodo;
   from?: string;
   to?: string;
@@ -61,12 +62,12 @@ function saudacaoPorHora(): string {
 }
 
 export function DashboardView({
-  unidades, unidadeAtiva, periodo, from, to, labelJanela,
+  unidades, selecaoUnidades, periodo, from, to, labelJanela,
   kpis, timeseries, split, hourly, machines, insights,
 }: DashboardViewProps) {
   const today = new Date();
   const hoje = fmtDateBR(today);
-  const unidadeNome = unidades.find((u) => u.id === unidadeAtiva)?.nome ?? "—";
+  const unidadeRotulo = selecaoUnidades.rotulo;
 
   const deltaFat = fmtPct(kpis.faturamento, kpis.faturamentoAnterior);
   const deltaVendas = fmtPct(kpis.qtdVendas, kpis.qtdVendasAnterior);
@@ -87,7 +88,7 @@ export function DashboardView({
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-sm border border-white/20">
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-white">
-                Central Operacional · {unidadeNome} · {labelJanela}
+                Central Operacional · {unidadeRotulo} · {labelJanela}
               </span>
             </div>
             <h1 className="font-display text-3xl lg:text-4xl font-bold tracking-tight text-white mt-3">
@@ -109,7 +110,7 @@ export function DashboardView({
 
           <DashboardFilters
             unidades={unidades}
-            unidadeAtiva={unidadeAtiva}
+            selecaoUnidades={selecaoUnidades}
             periodo={periodo}
             from={from}
             to={to}
