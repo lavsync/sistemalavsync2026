@@ -3,11 +3,12 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as Dialog from "@radix-ui/react-dialog";
+import * as Tabs from "@radix-ui/react-tabs";
 import {
   Megaphone, Plus, Send, Eye, Trash2, Save, X, Loader2,
   MessageCircle, Mail, Smartphone, Users, Crown, Heart, TrendingDown,
   UserPlus, AlertTriangle, CheckCircle2, Clock, Sparkles, Building2,
-  Edit2,
+  Edit2, Trophy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -17,6 +18,8 @@ import {
   salvarCampanha, deletarCampanha, dispararCampanha,
   type CampanhaInput,
 } from "@/lib/marketing/actions";
+import { ClubeView } from "./clube-view";
+import type { Classificacao, ResumoClube, TemplateMensagem } from "@/lib/clube/queries";
 
 type Unidade = { id: string; nome: string };
 
@@ -51,11 +54,18 @@ const fmtBR = (iso: string) => {
 
 export function MarketingView({
   campanhas, unidades, unidadeAtivaId,
+  clubeResumo, clubeClassificacoes, clubeMesAplicacao, clubeMesesDisponiveis, clubeTemplates,
 }: {
   campanhas: Campanha[];
   unidades: Unidade[];
   unidadeAtivaId: string;
+  clubeResumo: ResumoClube;
+  clubeClassificacoes: Classificacao[];
+  clubeMesAplicacao: string;
+  clubeMesesDisponiveis: string[];
+  clubeTemplates: TemplateMensagem[];
 }) {
+  const [tab, setTab] = React.useState<"campanhas" | "clube">("campanhas");
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>(unidadeAtivaId);
   const [editando, setEditando] = React.useState<Campanha | "nova" | null>(null);
   const [disparando, setDisparando] = React.useState<string | null>(null);
@@ -81,14 +91,32 @@ export function MarketingView({
     <div className="px-6 lg:px-8 py-6 space-y-5">
       <PageHeader
         eyebrow="Operacional · Marketing"
-        title="Campanhas e win-back"
-        subtitle="Crie campanhas segmentadas por RFM. Templates prontos pra cada perfil de cliente."
+        title="Campanhas, win-back e Clube de Vantagens"
+        subtitle="Gestão integrada de comunicação com clientes — RFM, gamificação por níveis, mensagens renderizadas."
         actions={
-          <Button onClick={() => setEditando("nova")} className="bg-gradient-to-r from-brand-cyan to-brand-blue text-white">
-            <Plus className="w-3.5 h-3.5 mr-1" /> Nova campanha
-          </Button>
+          tab === "campanhas" ? (
+            <Button onClick={() => setEditando("nova")} className="bg-gradient-to-r from-brand-cyan to-brand-blue text-white">
+              <Plus className="w-3.5 h-3.5 mr-1" /> Nova campanha
+            </Button>
+          ) : null
         }
       />
+
+      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "campanhas" | "clube")}>
+        <Tabs.List className="flex gap-1 rounded-xl border border-border bg-card p-1 w-fit">
+          <Tabs.Trigger value="campanhas"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-cyan data-[state=active]:to-brand-blue data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
+            <Megaphone className="w-3.5 h-3.5" /> Campanhas
+            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{campanhas.length}</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="clube"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-warning data-[state=active]:to-brand-cyan data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
+            <Trophy className="w-3.5 h-3.5" /> Clube de Vantagens
+            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{clubeResumo.total}</span>
+          </Tabs.Trigger>
+        </Tabs.List>
+
+        <Tabs.Content value="campanhas" className="outline-none mt-5 space-y-5">
 
       {/* Aviso integração */}
       <div className="rounded-xl border border-warning/30 bg-gradient-to-br from-warning/[0.06] to-transparent p-4 flex items-center gap-3">
@@ -151,6 +179,21 @@ export function MarketingView({
           })}
         </div>
       </div>
+
+        </Tabs.Content>
+
+        <Tabs.Content value="clube" className="outline-none mt-5">
+          <ClubeView
+            resumo={clubeResumo}
+            classificacoes={clubeClassificacoes}
+            mesAplicacao={clubeMesAplicacao}
+            mesesDisponiveis={clubeMesesDisponiveis}
+            unidades={unidades}
+            templates={clubeTemplates}
+            selecaoUnidadeIds={filtroUnidade !== "todas" ? [filtroUnidade] : []}
+          />
+        </Tabs.Content>
+      </Tabs.Root>
 
       {editando && (
         <CampanhaDialog
