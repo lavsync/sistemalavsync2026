@@ -231,6 +231,9 @@ export async function importarVendas(
 
   for (const p of payloads) {
     if (p.requisicao && reqsExistentes.has(p.requisicao)) continue;
+    // Marca a requisicao como vista pra deduplicar linhas repetidas DENTRO do
+    // mesmo arquivo (MAXPAN às vezes exporta a mesma transação duas vezes)
+    if (p.requisicao) reqsExistentes.add(p.requisicao);
 
     let clienteId: string | null = null;
     if (p.cpf) {
@@ -284,7 +287,16 @@ export async function importarVendas(
       .from("vendas")
       .insert(chunk, { count: "exact" });
     if (error) {
-      erros.push({ linha: -1, motivo: `Erro batch insert: ${error.message}` });
+      // Postgres rejeita o chunk inteiro se uma linha violar unique index;
+      // reinsere linha a linha pra não perder as vendas válidas do lote
+      for (const linha of chunk) {
+        const { error: e1 } = await supabase.from("vendas").insert(linha);
+        if (!e1) {
+          inseridos += 1;
+        } else if (e1.code !== "23505") {
+          erros.push({ linha: -1, motivo: `Erro insert: ${e1.message}` });
+        }
+      }
     } else {
       inseridos += count ?? chunk.length;
     }
