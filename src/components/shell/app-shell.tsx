@@ -38,6 +38,7 @@ export async function AppShell({
         <Topbar
           unidades={unidades.map((u) => ({ id: u.id, nome: u.nome }))}
           unidadeAtivaId={unidadeAtiva.id}
+          user={sessionUser}
         />
 
         {/* Main + Copilot rail lado a lado em xl+; mobile o copilot é FAB flutuante */}

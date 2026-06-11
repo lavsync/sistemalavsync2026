@@ -3,9 +3,12 @@
 // usuário logado. O tenant_id já é filtrado via policy; passamos só unidade_id.
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { startOfMonthBR, addDaysBR } from "@/lib/timezone-br";
 
 // Unidade default = Buritis (única com dados reais até hoje).
 export const DEFAULT_UNIDADE_ID = "10000000-0000-0000-0000-000000000001";
+
+void addDaysBR; // mantido pra uso futuro em queries de dia
 
 // ─── tipos compartilhados com as views ──────────────────────────────────────
 export type RevenuePoint = { day: string; value: number; projected: number };
@@ -273,9 +276,8 @@ export async function getOperationalMetrics(
   unidadeId: string = DEFAULT_UNIDADE_ID
 ): Promise<MetricGaugeData[]> {
   const supabase = await createClient();
-  const now = new Date();
-  const inicioMesAtual = new Date(now.getFullYear(), now.getMonth(), 1);
-  const inicioMesAnterior = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const inicioMesAtual = startOfMonthBR();
+  const inicioMesAnterior = startOfMonthBR(new Date(inicioMesAtual.getTime() - 1));
 
   const { data, error } = await supabase
     .from("ciclos")

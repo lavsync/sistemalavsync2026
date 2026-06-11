@@ -310,11 +310,13 @@ function ResultadoCard({ result, onClose, onNovo }: { result: ImportVendasResult
           <div className="text-[12px] text-muted-foreground">{result.totalLinhas} vendas processadas</div>
         </div>
       </div>
-      <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Inseridas" value={result.inseridos} tone="success" />
-        <Stat label="Ignoradas (dup)" value={result.ignorados} tone="muted" />
-        <Stat label="Clientes linkados" value={result.clientesLinkados} tone="cyan" />
+      <div className="p-5 grid grid-cols-2 md:grid-cols-3 gap-3">
+        <Stat label="Vendas inseridas" value={result.inseridos} tone="success" />
+        <Stat label="Vendas ignoradas (dup)" value={result.ignorados} tone="muted" />
         <Stat label="Erros" value={result.erros.length} tone={result.erros.length ? "danger" : "muted"} />
+        <Stat label="Clientes linkados" value={result.clientesLinkados} tone="cyan" />
+        <Stat label="Clientes criados" value={result.clientesCriados} tone="cyan" />
+        <Stat label="Clientes atualizados" value={result.clientesAtualizados} tone="cyan" />
       </div>
       <div className="px-5 py-3 border-t border-border/60 bg-muted/30 flex items-center justify-between">
         <Button variant="ghost" onClick={onNovo}>Importar outro</Button>

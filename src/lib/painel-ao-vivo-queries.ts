@@ -2,6 +2,7 @@
 // Server queries que rodam por unidade pra alimentar dashboard em tempo real.
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { startOfDayBR, addDaysBR } from "@/lib/timezone-br";
 
 export type VendaLiveItem = {
   id: string;
@@ -47,21 +48,10 @@ export type PainelAoVivoTotal = {
   vendasUltimaHora: number;
 };
 
-function inicioHoje(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function inicioOntem(): Date {
-  const d = inicioHoje();
-  d.setDate(d.getDate() - 1);
-  return d;
-}
-
-function umaHoraAtras(): Date {
-  return new Date(Date.now() - 60 * 60 * 1000);
-}
+// "Hoje" e "ontem" — sempre fuso Brasília (-03:00), nunca UTC do server
+function inicioHoje(): Date { return startOfDayBR(); }
+function inicioOntem(): Date { return addDaysBR(new Date(), -1); }
+function umaHoraAtras(): Date { return new Date(Date.now() - 60 * 60 * 1000); }
 
 async function getDadosUnidade(
   unidade: { id: string; nome: string },

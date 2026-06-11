@@ -1,6 +1,7 @@
 // LavSync · Performance · Server-side queries (Supabase + RLS)
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { paginarTodos } from "@/lib/supabase/pagination";
 
 function isMissingTable(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -208,21 +209,26 @@ export async function getFaturamentoPorPagamento(
   refMes?: Date,
 ): Promise<FaturamentoPagamentoSlice[]> {
   const supabase = await createClient();
-  let q = supabase
-    .from("vendas")
-    .select("tipo_pagamento, tipo_cartao, valor")
-    .in("unidade_id", unidadeIds)
-    .eq("situacao", "sucesso");
-  if (refMes) {
-    q = q.gte("data_venda", inicioMes(refMes).toISOString())
-         .lte("data_venda", fimMes(refMes).toISOString());
+  type Row = { tipo_pagamento: string; tipo_cartao: string | null; valor: number | string };
+  let rows: Row[] = [];
+  try {
+    rows = await paginarTodos<Row>((r) => {
+      let q = supabase
+        .from("vendas")
+        .select("tipo_pagamento, tipo_cartao, valor")
+        .in("unidade_id", unidadeIds)
+        .eq("situacao", "sucesso")
+        .range(r.from, r.to);
+      if (refMes) {
+        q = q.gte("data_venda", inicioMes(refMes).toISOString())
+             .lte("data_venda", fimMes(refMes).toISOString());
+      }
+      return q;
+    });
+  } catch (e) {
+    if (isMissingTable(e as { message: string })) return [];
+    throw e;
   }
-  const { data, error } = await q;
-  if (error) {
-    if (isMissingTable(error)) return [];
-    throw error;
-  }
-  const rows = (data ?? []) as Array<{ tipo_pagamento: string; tipo_cartao: string | null; valor: number | string }>;
   const buckets = new Map<string, { count: number; valor: number }>();
   for (const r of rows) {
     const key = r.tipo_pagamento === "tef"
@@ -269,20 +275,25 @@ export async function getPorDiaSemana(
   const ancora = ultimaVenda?.data_venda ? new Date(ultimaVenda.data_venda as string) : new Date();
   const ate = new Date(ancora);
   const desde = new Date(ancora.getTime() - diasJanela * 24 * 60 * 60 * 1000);
-  const q = supabase
-    .from("vendas")
-    .select("data_venda, valor, cpf")
-    .in("unidade_id", unidadeIds)
-    .eq("situacao", "sucesso")
-    .gte("data_venda", desde.toISOString())
-    .lte("data_venda", ate.toISOString());
-  const { data, error } = await q;
-  if (error) {
-    if (isMissingTable(error)) return [];
-    throw error;
+  type Row = { data_venda: string; valor: number | string; cpf: string | null };
+  let rows: Row[];
+  try {
+    rows = await paginarTodos<Row>((r) =>
+      supabase
+        .from("vendas")
+        .select("data_venda, valor, cpf")
+        .in("unidade_id", unidadeIds)
+        .eq("situacao", "sucesso")
+        .gte("data_venda", desde.toISOString())
+        .lte("data_venda", ate.toISOString())
+        .range(r.from, r.to),
+    );
+  } catch (e) {
+    if (isMissingTable(e as { message: string })) return [];
+    throw e;
   }
   const buckets = DIAS.map(() => ({ clientesSet: new Set<string>(), faturamento: 0, contagem: 0 }));
-  for (const r of (data ?? []) as Array<{ data_venda: string; valor: number | string; cpf: string | null }>) {
+  for (const r of rows) {
     const d = new Date(r.data_venda);
     const idx = d.getDay();
     buckets[idx].faturamento += Number(r.valor) || 0;
@@ -319,18 +330,24 @@ export async function getEvolucaoMensal(unidadeIds: string[], meses: number = 12
     .maybeSingle();
   const ancora = ultima?.data_venda ? new Date(ultima.data_venda as string) : new Date();
   const inicio = new Date(ancora.getFullYear(), ancora.getMonth() - (meses - 1), 1);
-  const { data, error } = await supabase
-    .from("vendas")
-    .select("data_venda, valor, cpf")
-    .in("unidade_id", unidadeIds)
-    .eq("situacao", "sucesso")
-    .gte("data_venda", inicio.toISOString());
-  if (error) {
-    if (isMissingTable(error)) return [];
-    throw error;
+  type Row = { data_venda: string; valor: number | string; cpf: string | null };
+  let rows: Row[];
+  try {
+    rows = await paginarTodos<Row>((r) =>
+      supabase
+        .from("vendas")
+        .select("data_venda, valor, cpf")
+        .in("unidade_id", unidadeIds)
+        .eq("situacao", "sucesso")
+        .gte("data_venda", inicio.toISOString())
+        .range(r.from, r.to),
+    );
+  } catch (e) {
+    if (isMissingTable(e as { message: string })) return [];
+    throw e;
   }
   const buckets = new Map<string, { fat: number; clientes: Set<string>; ciclos: number }>();
-  for (const r of (data ?? []) as Array<{ data_venda: string; valor: number | string; cpf: string | null }>) {
+  for (const r of rows) {
     const d = new Date(r.data_venda);
     const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
     if (!buckets.has(k)) buckets.set(k, { fat: 0, clientes: new Set(), ciclos: 0 });
@@ -385,21 +402,26 @@ export async function getCuponsUsados(unidadeIds: string[], refMes?: Date): Prom
     refReal = ult?.data_venda ? new Date(ult.data_venda as string) : new Date();
   }
   const mesRef = `${refReal.getFullYear()}-${String(refReal.getMonth() + 1).padStart(2, "0")}`;
-  const q = supabase
-    .from("vendas")
-    .select("cupom_codigo, valor, valor_sem_desconto")
-    .in("unidade_id", unidadeIds)
-    .eq("situacao", "sucesso")
-    .not("cupom_codigo", "is", null)
-    .gte("data_venda", inicioMes(refReal).toISOString())
-    .lte("data_venda", fimMes(refReal).toISOString());
-  const { data, error } = await q;
-  if (error) {
-    if (isMissingTable(error)) return { items: [], mesRef: null };
-    throw error;
+  type Row = { cupom_codigo: string; valor: number | string; valor_sem_desconto: number | string | null };
+  let rows: Row[];
+  try {
+    rows = await paginarTodos<Row>((r) =>
+      supabase
+        .from("vendas")
+        .select("cupom_codigo, valor, valor_sem_desconto")
+        .in("unidade_id", unidadeIds)
+        .eq("situacao", "sucesso")
+        .not("cupom_codigo", "is", null)
+        .gte("data_venda", inicioMes(refReal!).toISOString())
+        .lte("data_venda", fimMes(refReal!).toISOString())
+        .range(r.from, r.to),
+    );
+  } catch (e) {
+    if (isMissingTable(e as { message: string })) return { items: [], mesRef: null };
+    throw e;
   }
   const buckets = new Map<string, { qtd: number; valor: number; desconto: number }>();
-  for (const r of (data ?? []) as Array<{ cupom_codigo: string; valor: number | string; valor_sem_desconto: number | string | null }>) {
+  for (const r of rows) {
     if (!r.cupom_codigo) continue;
     const cur = buckets.get(r.cupom_codigo) ?? { qtd: 0, valor: 0, desconto: 0 };
     const v = Number(r.valor) || 0;
@@ -442,21 +464,26 @@ export async function getVouchersUsados(unidadeIds: string[], refMes?: Date): Pr
     refReal = ult?.data_venda ? new Date(ult.data_venda as string) : new Date();
   }
   const mesRef = `${refReal.getFullYear()}-${String(refReal.getMonth() + 1).padStart(2, "0")}`;
-  const q = supabase
-    .from("vendas")
-    .select("voucher_codigo, voucher_categoria, valor")
-    .in("unidade_id", unidadeIds)
-    .eq("situacao", "sucesso")
-    .not("voucher_codigo", "is", null)
-    .gte("data_venda", inicioMes(refReal).toISOString())
-    .lte("data_venda", fimMes(refReal).toISOString());
-  const { data, error } = await q;
-  if (error) {
-    if (isMissingTable(error)) return { items: [], mesRef: null };
-    throw error;
+  type Row = { voucher_codigo: string; voucher_categoria: string | null; valor: number | string };
+  let rows: Row[];
+  try {
+    rows = await paginarTodos<Row>((r) =>
+      supabase
+        .from("vendas")
+        .select("voucher_codigo, voucher_categoria, valor")
+        .in("unidade_id", unidadeIds)
+        .eq("situacao", "sucesso")
+        .not("voucher_codigo", "is", null)
+        .gte("data_venda", inicioMes(refReal!).toISOString())
+        .lte("data_venda", fimMes(refReal!).toISOString())
+        .range(r.from, r.to),
+    );
+  } catch (e) {
+    if (isMissingTable(e as { message: string })) return { items: [], mesRef: null };
+    throw e;
   }
   const buckets = new Map<string, { categoria: string | null; qtd: number; valor: number }>();
-  for (const r of (data ?? []) as Array<{ voucher_codigo: string; voucher_categoria: string | null; valor: number | string }>) {
+  for (const r of rows) {
     const cur = buckets.get(r.voucher_codigo) ?? { categoria: r.voucher_categoria, qtd: 0, valor: 0 };
     cur.qtd += 1;
     cur.valor += Number(r.valor) || 0;

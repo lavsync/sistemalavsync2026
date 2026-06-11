@@ -8,13 +8,16 @@ import { useEffect, useState } from "react";
 import { LiveClock } from "./live-clock";
 import { MobileNavTrigger } from "./mobile-nav";
 import { UnidadeSwitcher, type UnidadeOpt } from "./unidade-switcher";
+import type { SessionUser } from "./types";
 
 export function Topbar({
   unidades,
   unidadeAtivaId,
+  user,
 }: {
   unidades: UnidadeOpt[];
   unidadeAtivaId: string;
+  user?: SessionUser;
 }) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -80,16 +83,16 @@ export function Topbar({
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-danger animate-pulse" />
           </Button>
 
-          {/* User */}
+          {/* User — nome + iniciais do usuário logado */}
           <button className="ml-1 flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-md hover:bg-secondary transition-smooth">
             <Avatar className="w-7 h-7 border border-border">
               <AvatarFallback className="bg-gradient-to-br from-brand-cyan to-brand-purple text-[10px] text-white font-bold">
-                DQ
+                {user?.initials ?? "??"}
               </AvatarFallback>
             </Avatar>
             <div className="hidden md:block text-left">
-              <div className="text-[11px] font-semibold leading-none">Daniel Queiroz</div>
-              <div className="text-[9px] text-muted-foreground mt-0.5">Operador · Master</div>
+              <div className="text-[11px] font-semibold leading-none">{user?.name ?? "—"}</div>
+              <div className="text-[9px] text-muted-foreground mt-0.5">{user?.role ?? "Operador"}</div>
             </div>
           </button>
         </div>

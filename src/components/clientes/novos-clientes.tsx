@@ -57,6 +57,7 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
   return (
     <ChartCard
       title="Novos clientes"
+      height="auto"
       subtitle={
         periodoAtivo === "data"
           ? `Cadastros em ${fmtDiaBR(diaParam)}`

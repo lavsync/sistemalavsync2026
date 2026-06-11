@@ -3,6 +3,8 @@
 // comparado lado a lado com outra janela.
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { paginarTodos } from "@/lib/supabase/pagination";
+import { startOfDayBR, endOfDayBR, addDaysBR, startOfMonthBR, startOfYearBR } from "@/lib/timezone-br";
 
 export type AgregadoJanela = {
   unidadeId: string;
@@ -33,7 +35,6 @@ export type AgregadoJanela = {
 
 const DOW_NOMES = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-function startOfDay(d: Date): Date { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function fmtBR(d: Date): string {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 }
@@ -54,15 +55,16 @@ export async function getAgregado(
   unidadeNome: string,
 ): Promise<AgregadoJanela> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("vendas")
-    .select("data_venda, valor, cpf, tipo_servico, cupom_codigo, voucher_codigo")
-    .eq("unidade_id", unidadeId)
-    .eq("situacao", "sucesso")
-    .gte("data_venda", from.toISOString())
-    .lte("data_venda", to.toISOString());
-  if (error) throw error;
-  const rows = (data ?? []) as VendaLite[];
+  const rows = await paginarTodos<VendaLite>((r) =>
+    supabase
+      .from("vendas")
+      .select("data_venda, valor, cpf, tipo_servico, cupom_codigo, voucher_codigo")
+      .eq("unidade_id", unidadeId)
+      .eq("situacao", "sucesso")
+      .gte("data_venda", from.toISOString())
+      .lte("data_venda", to.toISOString())
+      .range(r.from, r.to),
+  );
 
   let fat = 0;
   let fatLav = 0;
@@ -83,11 +85,14 @@ export async function getAgregado(
     if (r.cupom_codigo) cupom++;
     if (r.voucher_codigo) voucher++;
     if (r.cpf) cpfs.add(r.cpf);
-    const d = new Date(r.data_venda);
-    porHora[d.getHours()]++;
-    porDow[d.getDay()]++;
-    const diaIso = startOfDay(d).toISOString();
-    const cur = porDia.get(diaIso) ?? { valor: 0, vendas: 0, d: startOfDay(d) };
+    // Hora/dia da semana SEMPRE em Brasília (offset -3h aplicado via cálculo manual)
+    const dUTC = new Date(r.data_venda);
+    const dBR = new Date(dUTC.getTime() - 3 * 3600 * 1000);
+    porHora[dBR.getUTCHours()]++;
+    porDow[dBR.getUTCDay()]++;
+    const inicioDiaBR = startOfDayBR(dUTC);
+    const diaIso = inicioDiaBR.toISOString();
+    const cur = porDia.get(diaIso) ?? { valor: 0, vendas: 0, d: inicioDiaBR };
     cur.valor += v;
     cur.vendas += 1;
     porDia.set(diaIso, cur);
@@ -97,18 +102,22 @@ export async function getAgregado(
   // CPFs novos = aqueles cuja primeira venda HISTÓRICA caiu na janela
   let cpfsNovos = 0;
   if (cpfs.size > 0) {
+    type P = { cpf: string; data_venda: string };
     const cpfArr = Array.from(cpfs);
     for (let i = 0; i < cpfArr.length; i += 100) {
       const slice = cpfArr.slice(i, i + 100);
-      const { data: primeiras } = await supabase
-        .from("vendas")
-        .select("cpf, data_venda")
-        .eq("unidade_id", unidadeId)
-        .eq("situacao", "sucesso")
-        .in("cpf", slice)
-        .order("data_venda", { ascending: true });
+      const primeiras = await paginarTodos<P>((r) =>
+        supabase
+          .from("vendas")
+          .select("cpf, data_venda")
+          .eq("unidade_id", unidadeId)
+          .eq("situacao", "sucesso")
+          .in("cpf", slice)
+          .order("data_venda", { ascending: true })
+          .range(r.from, r.to),
+      );
       const primeiraPorCpf = new Map<string, string>();
-      for (const r of (primeiras ?? []) as Array<{ cpf: string; data_venda: string }>) {
+      for (const r of primeiras) {
         if (!primeiraPorCpf.has(r.cpf)) primeiraPorCpf.set(r.cpf, r.data_venda);
       }
       for (const [, dt] of primeiraPorCpf) {
@@ -184,29 +193,28 @@ const presetLabels: Record<PeriodoComp, string> = {
 export function rotuloPreset(p: PeriodoComp): string { return presetLabels[p] ?? p; }
 
 export function resolverPreset(p: PeriodoComp, fromStr?: string, toStr?: string): { from: Date; to: Date } {
-  const now = new Date();
-  const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
-  const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-  if (p === "hoje")    return { from: startOfDay(now), to: endOfDay(now) };
-  if (p === "ontem")   { const o = addDays(startOfDay(now), -1); return { from: o, to: endOfDay(o) }; }
-  if (p === "7d")      return { from: startOfDay(addDays(now, -6)), to: endOfDay(now) };
-  if (p === "30d")     return { from: startOfDay(addDays(now, -29)), to: endOfDay(now) };
-  if (p === "90d")     return { from: startOfDay(addDays(now, -89)), to: endOfDay(now) };
-  if (p === "mes")     return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: endOfDay(now) };
+  // Tudo no fuso Brasília (-03:00). Server roda em UTC.
+  const agora = new Date();
+  if (p === "hoje")    return { from: startOfDayBR(), to: endOfDayBR() };
+  if (p === "ontem")   { const o = addDaysBR(agora, -1); return { from: o, to: endOfDayBR(o) }; }
+  if (p === "7d")      return { from: addDaysBR(agora, -6), to: endOfDayBR() };
+  if (p === "30d")     return { from: addDaysBR(agora, -29), to: endOfDayBR() };
+  if (p === "90d")     return { from: addDaysBR(agora, -89), to: endOfDayBR() };
+  if (p === "mes")     return { from: startOfMonthBR(), to: endOfDayBR() };
   if (p === "mes_anterior") {
-    const ini = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const fim = endOfDay(new Date(now.getFullYear(), now.getMonth(), 0));
+    // Primeiro dia do mês passado em BR
+    const mesAnt = new Date(startOfMonthBR().getTime() - 1);  // último ms do mês anterior
+    const ini = startOfMonthBR(mesAnt);
+    const fim = endOfDayBR(new Date(startOfMonthBR().getTime() - 1));
     return { from: ini, to: fim };
   }
-  if (p === "ano")     return { from: new Date(now.getFullYear(), 0, 1), to: endOfDay(now) };
+  if (p === "ano")     return { from: startOfYearBR(), to: endOfDayBR() };
   if (p === "ano_anterior") {
-    return {
-      from: new Date(now.getFullYear() - 1, 0, 1),
-      to:   endOfDay(new Date(now.getFullYear() - 1, 11, 31)),
-    };
+    const yPassado = new Date(startOfYearBR().getTime() - 1);
+    return { from: startOfYearBR(yPassado), to: endOfDayBR(yPassado) };
   }
-  // custom
-  const f = fromStr ? startOfDay(new Date(`${fromStr}T00:00:00`)) : startOfDay(addDays(now, -29));
-  const t = toStr   ? endOfDay(new Date(`${toStr}T00:00:00`))     : endOfDay(now);
+  // custom — datas YYYY-MM-DD são interpretadas como dias BR
+  const f = fromStr ? startOfDayBR(new Date(`${fromStr}T12:00:00-03:00`)) : addDaysBR(agora, -29);
+  const t = toStr   ? endOfDayBR(new Date(`${toStr}T12:00:00-03:00`))     : endOfDayBR();
   return { from: f, to: t };
 }

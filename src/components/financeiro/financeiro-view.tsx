@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import { motion } from "framer-motion";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
   ReferenceLine,
@@ -10,8 +10,9 @@ import {
 import {
   LayoutDashboard, Briefcase, FileText, TrendingUp, Settings,
   Building2, ChevronLeft, ChevronRight, Plus, Trash2, Save, Wand2,
-  Target, Wallet, Award, Percent, AlertTriangle, CheckCircle2,
-  Download, X, Check, Loader2, ArrowRight, Coins,
+  Wallet, Award, Percent, AlertTriangle, CheckCircle2,
+  Download, X, Check, Loader2, ArrowRight, Coins, Calendar, Filter,
+  WashingMachine, Wind, Zap, Droplets, Beaker, FlaskConical, DollarSign, Clock, Plug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Counter } from "./counter";
@@ -23,6 +24,9 @@ import {
 import type {
   UnidadeConfig, InvestimentoCategoria, LancamentoMes,
 } from "@/lib/financeiro/queries";
+import type { EngenhariaCustos, MargemUnidade } from "@/lib/financeiro/margem-engine";
+import { calcularCustoLavagem, calcularCustoSecagem, calcularOverheadEletrico } from "@/lib/financeiro/margem-engine";
+import { salvarEngenhariaCustos } from "@/lib/financeiro/margem-actions";
 import {
   atualizarConfigUnidade, atualizarValorRealInvestimento,
   criarCategoriaInvestimento, deletarCategoriaInvestimento,
@@ -100,6 +104,8 @@ export type FinanceiroData = {
   custos_variaveis: CustoVariavel[];
   lancamentos: LancamentoMes[];
   despesas_mes: DespesasMesData;
+  engenharia: EngenhariaCustos | null;
+  margem: MargemUnidade | null;
 };
 
 export function FinanceiroView(props: FinanceiroData) {
@@ -182,7 +188,6 @@ export function FinanceiroView(props: FinanceiroData) {
           <TabBtn value="painel"    icon={LayoutDashboard} label="Painel Geral" />
           <TabBtn value="invest"    icon={Briefcase}       label="Investimento" />
           <TabBtn value="dre"       icon={FileText}        label="DRE Mensal" />
-          <TabBtn value="projecao"  icon={TrendingUp}      label="Projeção 5 Anos" />
           <TabBtn value="config"    icon={Settings}        label="Configurações" />
         </Tabs.List>
 
@@ -194,6 +199,7 @@ export function FinanceiroView(props: FinanceiroData) {
             mesAtualIdx={mesAtualIdx}
             data={data}
             investimentoTotal={investimentoTotalProjetado}
+            margem={data.margem}
           />
         </Tabs.Content>
 
@@ -218,11 +224,6 @@ export function FinanceiroView(props: FinanceiroData) {
           />
         </Tabs.Content>
 
-        {/* PROJEÇÃO 60 MESES */}
-        <Tabs.Content value="projecao" className="outline-none mt-5 space-y-5">
-          <Projecao60Meses projecao={projecao} mesAtualIdx={mesAtualIdx} />
-        </Tabs.Content>
-
         {/* CONFIGURAÇÕES */}
         <Tabs.Content value="config" className="outline-none mt-5 space-y-5">
           <Configuracoes
@@ -233,6 +234,7 @@ export function FinanceiroView(props: FinanceiroData) {
             custosVariaveis={data.custos_variaveis}
             projecao={projecao}
           />
+          {data.engenharia && <EngenhariaCustosEditor unidadeId={unidadeAtiva} engenharia={data.engenharia} />}
         </Tabs.Content>
       </Tabs.Root>
     </div>
@@ -252,7 +254,7 @@ function TabBtn({ value, icon: Icon, label }: { value: string; icon: React.Eleme
 // ────────────────────────────────────────────────────────────
 // Seletor unidade
 // ────────────────────────────────────────────────────────────
-function UnidadeSwitcher({ unidades, ativa, onChange }: { unidades: Unidade[]; ativa: string; onChange: (id: string) => void }) {
+export function UnidadeSwitcher({ unidades, ativa, onChange }: { unidades: Unidade[]; ativa: string; onChange: (id: string) => void }) {
   return (
     <div className="inline-flex items-center gap-1 rounded-xl border border-white/15 bg-white/5 backdrop-blur p-1">
       {unidades.map((u) => (
@@ -270,17 +272,17 @@ function UnidadeSwitcher({ unidades, ativa, onChange }: { unidades: Unidade[]; a
 // ────────────────────────────────────────────────────────────
 // PAINEL GERAL
 // ────────────────────────────────────────────────────────────
-function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal }: {
+function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal, margem }: {
   projecao: ProjecaoMes[]; payback: ReturnType<typeof calcularPayback>;
   mesAtualIdx: number; data: FinanceiroData; investimentoTotal: number;
+  margem: MargemUnidade | null;
 }) {
   const mesAtual = projecao[mesAtualIdx - 1];
   const fatRealMes = mesAtual?.faturamento_real ?? 0;
-  const fatProjMes = mesAtual?.faturamento_projetado ?? 0;
-  const resultadoMes = mesAtual?.resultado_real ?? mesAtual?.resultado_projetado ?? 0;
+  const resultadoMes = mesAtual?.resultado_real ?? 0;
 
-  // Break-even mês atual
-  const fatHist = projecao.slice(0, mesAtualIdx).map((p) => p.faturamento_real ?? p.faturamento_projetado);
+  // Break-even pra referência no gráfico (usa custos da unidade)
+  const fatHist = projecao.slice(0, mesAtualIdx).map((p) => p.faturamento_real ?? 0);
   const rbt12 = fatHist.slice(-12).reduce((s, v) => s + v, 0);
   const breakEven = calcularBreakEven({
     custos_fixos: data.custos_fixos,
@@ -290,82 +292,281 @@ function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal }
     investimento_total: investimentoTotal,
   });
 
-  // Janela 8 meses pro chart (atual ± 3)
-  const ini = Math.max(0, mesAtualIdx - 5);
-  const fim = Math.min(60, ini + 9);
-  const chartData = projecao.slice(ini, fim).map((p) => ({
+  // Filtro de meses (multi-select). Vazio = janela auto (atual ± 4).
+  const [mesesSelecionados, setMesesSelecionados] = React.useState<Set<number>>(new Set());
+
+  const projecaoFiltrada = React.useMemo(() => {
+    if (mesesSelecionados.size > 0) {
+      return projecao.filter((p) => mesesSelecionados.has(p.mes_index))
+        .sort((a, b) => a.mes_index - b.mes_index);
+    }
+    // Mostra só meses com vendas reais; senão cai pra janela atual ± 4
+    const comReal = projecao.filter((p) => p.faturamento_real != null);
+    if (comReal.length > 0) return comReal;
+    const ini = Math.max(0, mesAtualIdx - 5);
+    const fim = Math.min(60, ini + 9);
+    return projecao.slice(ini, fim);
+  }, [projecao, mesesSelecionados, mesAtualIdx]);
+
+  const chartData = projecaoFiltrada.map((p) => ({
     rotulo: p.rotulo,
-    projetado: p.faturamento_projetado,
-    real: p.faturamento_real,
-    status: p.status,
+    real: p.faturamento_real ?? 0,
+    mes_index: p.mes_index,
   }));
+
+  const totalReal = chartData.reduce((s, d) => s + d.real, 0);
+  const mediaReal = chartData.length > 0 ? totalReal / chartData.length : 0;
+  const maxReal = chartData.length > 0 ? Math.max(...chartData.map((d) => d.real)) : 0;
+
+  // DRE do mês atual com despesas reais lançadas (mesma lógica da aba DRE Mensal).
+  // Source da verdade pro card "Despesas DRE".
+  const overridesPainel = React.useMemo(() => {
+    if (data.despesas_mes.ano !== mesAtual?.ano || data.despesas_mes.mes !== mesAtual?.mes) return undefined;
+    const m = new Map<string, number>();
+    for (const cf of data.custos_fixos) {
+      const v = mapearDespesaReal(cf.descricao, data.despesas_mes);
+      if (v != null) m.set(cf.descricao, v);
+    }
+    for (const cv of data.custos_variaveis) {
+      const v = mapearDespesaReal(cv.descricao, data.despesas_mes);
+      if (v != null) m.set(cv.descricao, v);
+    }
+    return m;
+  }, [data.custos_fixos, data.custos_variaveis, data.despesas_mes, mesAtual?.ano, mesAtual?.mes]);
+
+  const dreMesPainel = React.useMemo(() => {
+    if (!mesAtual || fatRealMes <= 0) return null;
+    return calcularDRE({
+      faturamento: fatRealMes,
+      rbt12,
+      mes_index: mesAtualIdx,
+      custos_fixos: data.custos_fixos,
+      custos_variaveis: data.custos_variaveis,
+      investimento_total: investimentoTotal,
+      despesas_reais_overrides: overridesPainel,
+    });
+  }, [mesAtual, fatRealMes, rbt12, mesAtualIdx, data.custos_fixos, data.custos_variaveis, investimentoTotal, overridesPainel]);
+
+  const despesasDRE = dreMesPainel
+    ? dreMesPainel.simples_nacional + dreMesPainel.custo_servico_total + dreMesPainel.despesas_total
+    : 0;
+  const margemMes = fatRealMes > 0 ? (resultadoMes / fatRealMes) * 100 : 0;
 
   return (
     <>
-      {/* KPIs com counter animado */}
+      {/* KPIs reais */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-        <KpiCard fadeup={1} icon={TrendingUp} label="Faturamento mês" valor={fatRealMes || fatProjMes}
-          hint={fatRealMes > 0 ? `${((fatRealMes / fatProjMes) * 100).toFixed(0)}% da meta` : `Projetado ${fmtBRL(fatProjMes)}`}
-          tone={fatRealMes >= fatProjMes ? "success" : fatRealMes > 0 ? "warning" : "cyan"} />
-        <KpiCard fadeup={2} icon={Wallet} label="Resultado líquido mês" valor={resultadoMes}
-          hint={`Margem ${mesAtual ? (resultadoMes / Math.max(1, fatRealMes || fatProjMes) * 100).toFixed(1) : 0}%`}
-          tone={resultadoMes >= 0 ? "success" : "danger"} />
-        {(() => {
-          const totalReal = data.despesas_mes.total;
-          const totalProj = data.custos_fixos.filter((c) => c.ativo).reduce((s, c) => s + c.valor_mensal, 0);
-          const delta = totalProj > 0 ? ((totalReal - totalProj) / totalProj) * 100 : 0;
-          const tone = totalReal === 0 ? "purple" : totalReal <= totalProj ? "success" : "warning";
-          const hint = totalReal === 0
-            ? `Projetado ${fmtBRL(totalProj)}`
-            : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}% vs projetado`;
-          return <KpiCard fadeup={3} icon={Award} label="Despesas reais (mês)" valor={totalReal} hint={hint} tone={tone} />;
-        })()}
-        <KpiCard fadeup={4} icon={Percent} label="% recuperação investimento" valor={payback.pct_recuperado} suffix="%"
-          decimals={1} hint={`Meta ${data.config?.meta_payback_meses ?? 21} meses`} tone="cyan" />
+        <KpiCard fadeup={1} icon={TrendingUp} label="Faturamento mês"
+          valor={fatRealMes}
+          hint={fatRealMes > 0 ? `${MESES_PT[mesAtual?.mes ? mesAtual.mes - 1 : 0]}/${mesAtual?.ano ?? "—"}` : "Sem vendas no mês"}
+          tone={fatRealMes > 0 ? "success" : "purple"} />
+        <KpiCard fadeup={2} icon={Wallet} label="Resultado líquido mês"
+          valor={resultadoMes}
+          hint={fatRealMes > 0 ? `Margem ${margemMes.toFixed(1)}%` : "Aguardando vendas"}
+          tone={fatRealMes <= 0 ? "purple" : resultadoMes >= 0 ? "success" : "danger"} />
+        <KpiCard fadeup={3} icon={Award} label="Despesas DRE (mês)"
+          valor={despesasDRE}
+          hint={despesasDRE > 0 ? "Simples + custos fixos + variáveis + CSP" : "Sem dados no mês"}
+          tone={despesasDRE === 0 ? "purple" : "warning"} />
+        <KpiCard fadeup={4} icon={Percent} label="% recuperação investimento"
+          valor={payback.pct_recuperado}
+          suffix="%"
+          decimals={1}
+          hint={`Acumulado ${fmtBRL(payback.lucro_acumulado)}`}
+          tone="cyan" />
       </div>
 
-      {/* Payback bar */}
-      <PaybackBar payback={payback} />
+      {/* Margem de Contribuição */}
+      {margem && <MargemContribuicaoCard margem={margem} mes={mesAtual?.mes ?? new Date().getMonth() + 1} ano={mesAtual?.ano ?? new Date().getFullYear()} />}
 
-      {/* Chart projetado vs real */}
+      {/* Gráfico: Faturamento Real por mês */}
       <div className="rounded-2xl border border-border bg-card p-5 fin-card-lift">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
-            <div className="font-display font-bold text-[15px]">Faturamento — Projetado vs Real</div>
+            <div className="font-display font-bold text-[15px]">Faturamento Real por mês</div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              <span className="text-success">●</span> acima/na meta · <span className="text-danger">●</span> abaixo · <span className="text-muted-foreground">●</span> não lançado
+              {mesesSelecionados.size > 0
+                ? `${mesesSelecionados.size} ${mesesSelecionados.size === 1 ? "mês" : "meses"} selecionado${mesesSelecionados.size === 1 ? "" : "s"}`
+                : "Todos os meses com vendas"}
+              {totalReal > 0 && (
+                <>
+                  {" · Total "}
+                  <span className="font-mono font-bold text-success">{fmtBRL(totalReal)}</span>
+                  {" · Médio "}
+                  <span className="font-mono font-bold">{fmtBRL(mediaReal)}/mês</span>
+                  {" · Pico "}
+                  <span className="font-mono font-bold text-success">{fmtBRL(maxReal)}</span>
+                </>
+              )}
             </div>
           </div>
-          <div className="inline-flex items-center gap-2 text-[10px] text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded bg-brand-cyan/30" />projetado</span>
-            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded bg-success" />real</span>
+
+          <div className="flex items-center gap-2">
+            <FiltroMeses projecao={projecao} selecionados={mesesSelecionados} onChange={setMesesSelecionados} />
           </div>
         </div>
 
-        <div className="h-72">
+        <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <BarChart data={chartData} margin={{ top: 5, right: 14, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="rotulo" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
               <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={fmtBRLk} />
-              <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 8, fontSize: 11 }}
-                formatter={(v) => fmtBRL(Number(v ?? 0))} />
+              <Tooltip
+                contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 8, fontSize: 11 }}
+                cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                formatter={(v) => [fmtBRL(Number(v ?? 0)), "Faturamento"]}
+                labelStyle={{ fontWeight: 700, marginBottom: 4 }}
+              />
               <ReferenceLine y={breakEven} stroke="var(--warning)" strokeDasharray="5 5"
                 label={{ value: `Break-even ${fmtBRLk(breakEven)}`, position: "right", fill: "var(--warning)", fontSize: 10 }} />
-              <Bar dataKey="projetado" fill="rgba(25,199,203,0.25)" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="real" radius={[6, 6, 0, 0]}>
+              <Bar dataKey="real" name="Faturamento" radius={[6, 6, 0, 0]}>
                 {chartData.map((d, i) => (
                   <Cell key={i} fill={
-                    d.real == null ? "var(--muted-foreground)" :
-                    d.real >= d.projetado ? "var(--success)" : "var(--danger)"
+                    d.real === 0 ? "var(--muted)" :
+                    d.real >= breakEven ? "var(--success)" : "var(--brand-cyan)"
                   } />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        <div className="mt-3 text-[10px] text-muted-foreground flex items-center gap-3 flex-wrap">
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-success" />Acima do break-even</span>
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-brand-cyan" />Abaixo do break-even</span>
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-muted" />Sem vendas</span>
+        </div>
       </div>
     </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Filtro de meses (multi-select via dropdown com checkboxes)
+// ────────────────────────────────────────────────────────────
+function FiltroMeses({
+  projecao, selecionados, onChange,
+}: {
+  projecao: ProjecaoMes[];
+  selecionados: Set<number>;
+  onChange: (s: Set<number>) => void;
+}) {
+  function toggle(mesIdx: number) {
+    const novo = new Set(selecionados);
+    if (novo.has(mesIdx)) novo.delete(mesIdx);
+    else novo.add(mesIdx);
+    onChange(novo);
+  }
+  function selecionarUltimos(n: number) {
+    const ultimoComReal = [...projecao].reverse().find((p) => p.faturamento_real != null)?.mes_index
+      ?? projecao.find((p) => p.mes === new Date().getMonth() + 1 && p.ano === new Date().getFullYear())?.mes_index
+      ?? 1;
+    const ini = Math.max(1, ultimoComReal - n + 1);
+    const novo = new Set<number>();
+    for (let i = ini; i <= ultimoComReal; i++) novo.add(i);
+    onChange(novo);
+  }
+  function selecionarAno(ano: number) {
+    const novo = new Set<number>();
+    for (const p of projecao) if (p.ano === ano) novo.add(p.mes_index);
+    onChange(novo);
+  }
+  function limpar() {
+    onChange(new Set());
+  }
+
+  const anos = Array.from(new Set(projecao.map((p) => p.ano))).sort();
+  const label = selecionados.size === 0
+    ? "Todos os meses (auto)"
+    : selecionados.size === 1
+    ? (() => {
+        const p = projecao.find((x) => selecionados.has(x.mes_index));
+        return p ? `${MESES_PT[p.mes - 1].slice(0, 3)}/${String(p.ano).slice(-2)}` : "1 mês";
+      })()
+    : `${selecionados.size} meses`;
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card text-[12px] font-semibold hover:border-brand-cyan transition-smooth">
+          <Filter className="w-3.5 h-3.5 text-brand-cyan" />
+          {label}
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          className="z-50 max-h-[450px] w-[260px] overflow-y-auto rounded-xl border border-border bg-popover shadow-2xl p-1 animate-in fade-in zoom-in-95"
+        >
+          {/* Atalhos */}
+          <div className="px-2 py-1.5 border-b border-border/40">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Atalhos</div>
+            <div className="grid grid-cols-3 gap-1">
+              <button onClick={() => selecionarUltimos(3)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">3m</button>
+              <button onClick={() => selecionarUltimos(6)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">6m</button>
+              <button onClick={() => selecionarUltimos(12)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">12m</button>
+            </div>
+          </div>
+
+          {/* Por ano */}
+          <div className="px-2 py-1.5 border-b border-border/40">
+            <div className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Por ano</div>
+            <div className="flex flex-wrap gap-1">
+              {anos.map((a) => (
+                <button key={a} onClick={() => selecionarAno(a)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Lista de meses */}
+          <div className="py-1">
+            {projecao.map((p) => {
+              const ativo = selecionados.has(p.mes_index);
+              const temReal = p.faturamento_real != null;
+              return (
+                <button
+                  key={p.mes_index}
+                  onClick={() => toggle(p.mes_index)}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[11px] rounded-md hover:bg-secondary transition-smooth",
+                    ativo && "bg-brand-cyan/10",
+                  )}
+                >
+                  <div className={cn(
+                    "w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0",
+                    ativo ? "border-brand-cyan bg-brand-cyan text-white" : "border-border",
+                  )}>
+                    {ativo && <Check className="w-2.5 h-2.5" />}
+                  </div>
+                  <Calendar className="w-3 h-3 text-muted-foreground" />
+                  <span className="font-mono flex-1">
+                    {MESES_PT[p.mes - 1].slice(0, 3)}/{p.ano}
+                  </span>
+                  {temReal && (
+                    <span className="text-[9px] font-bold text-success">●</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {selecionados.size > 0 && (
+            <div className="border-t border-border/40 p-1.5">
+              <button
+                onClick={limpar}
+                className="w-full text-[11px] px-2 py-1.5 rounded-md text-danger hover:bg-danger/10 font-semibold"
+              >
+                Limpar seleção
+              </button>
+            </div>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
@@ -398,44 +599,7 @@ function KpiCard({ icon: Icon, label, valor, hint, tone, suffix = "", decimals =
   );
 }
 
-function PaybackBar({ payback }: { payback: ReturnType<typeof calcularPayback> }) {
-  const pct = Math.min(100, payback.pct_recuperado);
-  return (
-    <div className="rounded-2xl border border-border bg-card p-5 fin-card-lift">
-      <div className="flex items-center gap-2 mb-3">
-        <Target className="w-4 h-4 text-brand-cyan" />
-        <div className="font-display font-bold text-[15px]">Recuperação do investimento — Payback</div>
-      </div>
-      <div className="relative h-3 rounded-full bg-secondary overflow-hidden mb-2">
-        <motion.div
-          initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-cyan to-brand-blue overflow-hidden"
-        >
-          <div className="absolute inset-0 fin-shimmer" />
-        </motion.div>
-      </div>
-      <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-        <span>R$ 0</span><span className="font-bold text-foreground">{pct.toFixed(1)}%</span><span>{fmtBRL(payback.investimento)}</span>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-        <PayInfo label="Investimento"     valor={fmtBRL(payback.investimento)}    tone="brand-deep" />
-        <PayInfo label="Lucro acumulado"  valor={fmtBRL(payback.lucro_acumulado)} tone="success" />
-        <PayInfo label="Falta recuperar"  valor={fmtBRL(payback.falta_recuperar)} tone="warning" />
-        <PayInfo label="Payback projetado" valor={payback.mes_payback_projetado ? `${payback.mes_payback_projetado} meses` : "—"} tone="brand-cyan" />
-      </div>
-    </div>
-  );
-}
-
-function PayInfo({ label, valor, tone }: { label: string; valor: string; tone: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
-      <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">{label}</div>
-      <div className={cn("font-display font-bold text-[15px] mt-1 tabular-nums", `text-${tone}`)}>{valor}</div>
-    </div>
-  );
-}
+/* PaybackBar removido — usava payback projetado vs real (Daniel pediu só Real) */
 
 // ────────────────────────────────────────────────────────────
 // INVESTIMENTO
@@ -443,14 +607,17 @@ function PayInfo({ label, valor, tone }: { label: string; valor: string; tone: s
 function Investimento({ unidadeId, categorias, projetadoTotal, realTotal }: {
   unidadeId: string; categorias: InvestimentoCategoria[]; projetadoTotal: number; realTotal: number;
 }) {
-  const variacao = realTotal > 0 ? ((realTotal - projetadoTotal) / projetadoTotal) * 100 : 0;
+  void projetadoTotal;
+  const itensTotal = categorias.reduce((s, c) => s + c.itens.length, 0);
+  const itensComReal = categorias.reduce((s, c) => s + c.itens.filter((i) => i.valor_real != null).length, 0);
+  const faltaLancar = itensTotal - itensComReal;
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <SimpleStat icon={Briefcase} label="Projetado total" valor={fmtBRL(projetadoTotal)} tone="brand-cyan" />
-        <SimpleStat icon={Wallet}    label="Real lançado"    valor={realTotal > 0 ? fmtBRL(realTotal) : "—"} tone="success" />
-        <SimpleStat icon={Percent}   label="Variação"        valor={realTotal > 0 ? `${variacao >= 0 ? "+" : ""}${variacao.toFixed(1)}%` : "—"}
-          tone={variacao >= 0 ? "success" : "danger"} />
+        <SimpleStat icon={Wallet}    label="Investimento real" valor={realTotal > 0 ? fmtBRL(realTotal) : "—"} tone="success" />
+        <SimpleStat icon={Briefcase} label="Itens lançados"    valor={`${itensComReal} / ${itensTotal}`} tone="brand-cyan" />
+        <SimpleStat icon={Percent}   label="Falta lançar"      valor={faltaLancar === 0 ? "0 · completo" : `${faltaLancar} ${faltaLancar === 1 ? "item" : "itens"}`}
+          tone={faltaLancar === 0 ? "success" : "warning"} />
       </div>
 
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
@@ -495,13 +662,11 @@ function CategoriaInvestimento({ categoria, unidadeId }: { categoria: Investimen
           <div className="font-display font-bold text-[13px]">{categoria.nome}</div>
           <div className="text-[10px] text-muted-foreground">{categoria.itens.length} {categoria.itens.length === 1 ? "item" : "itens"}</div>
         </div>
-        <div className="text-right shrink-0">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Projetado</div>
-          <div className="font-mono font-bold">{fmtBRL(projetado)}</div>
-        </div>
-        <div className="text-right shrink-0 w-24">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Real</div>
-          <div className={cn("font-mono font-bold", comReal ? "text-success" : "text-muted-foreground")}>{comReal ? fmtBRL(real) : "—"}</div>
+        <div className="text-right shrink-0 w-28">
+          <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">Investido</div>
+          <div className={cn("font-mono font-bold", comReal ? "text-success" : "text-muted-foreground")}>
+            {comReal ? fmtBRL(real) : "—"}
+          </div>
         </div>
         <ChevronRight className={cn("w-4 h-4 transition-transform text-muted-foreground", aberto && "rotate-90")} />
       </button>
@@ -512,8 +677,7 @@ function CategoriaInvestimento({ categoria, unidadeId }: { categoria: Investimen
             <thead>
               <tr className="text-[9px] uppercase tracking-wider text-muted-foreground">
                 <th className="text-left py-1.5 px-2 font-semibold">Descrição</th>
-                <th className="text-right py-1.5 px-2 font-semibold">Projetado</th>
-                <th className="text-right py-1.5 px-2 font-semibold">Real (lançado)</th>
+                <th className="text-right py-1.5 px-2 font-semibold">Investido (Real)</th>
                 <th className="text-right py-1.5 px-2 font-semibold w-12">Ação</th>
               </tr>
             </thead>
@@ -550,8 +714,6 @@ function CategoriaInvestimento({ categoria, unidadeId }: { categoria: Investimen
 function ItemInvestimento({ item }: { item: InvestimentoCategoria["itens"][number] }) {
   const [real, setReal] = React.useState(item.valor_real != null ? item.valor_real.toString().replace(".", ",") : "");
   const [saving, setSaving] = React.useState(false);
-  const variacao = item.valor_real != null
-    ? ((item.valor_real - item.valor_projetado) / item.valor_projetado) * 100 : null;
 
   async function salvar() {
     setSaving(true);
@@ -564,17 +726,9 @@ function ItemInvestimento({ item }: { item: InvestimentoCategoria["itens"][numbe
   return (
     <tr className="border-b border-border/40">
       <td className="py-1.5 px-2">{item.descricao}</td>
-      <td className="py-1.5 px-2 text-right font-mono">{fmtBRL(item.valor_projetado)}</td>
       <td className="py-1.5 px-2 text-right">
-        <div className="inline-flex items-center gap-1">
-          <input value={real} onChange={(e) => setReal(e.target.value)} onBlur={salvar}
-            placeholder="—" className="form-input w-28 text-[11px] font-mono text-right py-1" />
-          {variacao != null && (
-            <span className={cn("text-[10px] font-mono w-12 text-right", variacao >= 0 ? "text-success" : "text-danger")}>
-              {variacao >= 0 ? "+" : ""}{variacao.toFixed(0)}%
-            </span>
-          )}
-        </div>
+        <input value={real} onChange={(e) => setReal(e.target.value)} onBlur={salvar}
+          placeholder="0,00" className="form-input w-32 text-[11px] font-mono text-right py-1" />
       </td>
       <td className="py-1.5 px-2 text-right">
         <button onClick={async () => { if (confirm(`Excluir "${item.descricao}"?`)) await deletarItemInvestimento(item.id); }}
@@ -583,6 +737,404 @@ function ItemInvestimento({ item }: { item: InvestimentoCategoria["itens"][numbe
         </button>
       </td>
     </tr>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// MARGEM DE CONTRIBUIÇÃO — engenharia de custos
+// ────────────────────────────────────────────────────────────
+function MargemContribuicaoCard({ margem, mes, ano }: {
+  margem: MargemUnidade; mes: number; ano: number;
+}) {
+  const margemLavTone = margem.margemPercLavagem >= 70 ? "success" : margem.margemPercLavagem >= 50 ? "warning" : "danger";
+  const margemSecTone = margem.margemPercSecagem >= 70 ? "success" : margem.margemPercSecagem >= 50 ? "warning" : "danger";
+  const margemMesTone = margem.margemContribuicaoPctMes >= 70 ? "success" : margem.margemContribuicaoPctMes >= 50 ? "warning" : "danger";
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 fin-card-lift">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <div className="font-display font-bold text-[15px] inline-flex items-center gap-2">
+            <Coins className="w-4 h-4 text-brand-cyan" />
+            Margem de contribuição · {MESES_PT[mes - 1]}/{ano}
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">
+            Faturamento – custos variáveis dos insumos por ciclo
+          </div>
+        </div>
+        <div className={cn(
+          "px-3 py-2 rounded-lg text-center min-w-[140px]",
+          margemMesTone === "success" && "bg-success/10 border border-success/30",
+          margemMesTone === "warning" && "bg-warning/10 border border-warning/30",
+          margemMesTone === "danger"  && "bg-danger/10 border border-danger/30",
+        )}>
+          <div className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Margem mês</div>
+          <div className={cn("font-display text-2xl font-bold tabular-nums leading-tight",
+            margemMesTone === "success" && "text-success",
+            margemMesTone === "warning" && "text-warning",
+            margemMesTone === "danger"  && "text-danger",
+          )}>
+            {fmtBRL(margem.margemContribuicaoMes)}
+          </div>
+          <div className="text-[10px] font-mono font-bold text-muted-foreground">
+            {margem.margemContribuicaoPctMes.toFixed(1)}%
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <MargemServicoCard
+          icone={WashingMachine}
+          titulo="Lavagem"
+          ciclosMes={margem.ciclosLavagemMes}
+          custoCiclo={margem.custoLavagem}
+          margemUnit={margem.margemUnitariaLavagem}
+          margemPct={margem.margemPercLavagem}
+          margemTone={margemLavTone}
+          precoCiclo={margem.custoLavagem.total + margem.margemUnitariaLavagem}
+          faturamentoMes={margem.faturamentoLavagemMes}
+          custoTotalMes={margem.custoLavagem.total * margem.ciclosLavagemMes}
+        />
+        <MargemServicoCard
+          icone={Wind}
+          titulo="Secagem"
+          ciclosMes={margem.ciclosSecagemMes}
+          custoCiclo={margem.custoSecagem}
+          margemUnit={margem.margemUnitariaSecagem}
+          margemPct={margem.margemPercSecagem}
+          margemTone={margemSecTone}
+          precoCiclo={margem.custoSecagem.total + margem.margemUnitariaSecagem}
+          faturamentoMes={margem.faturamentoSecagemMes}
+          custoTotalMes={margem.custoSecagem.total * margem.ciclosSecagemMes}
+        />
+      </div>
+
+      <div className="mt-4 rounded-lg border border-border bg-muted/20 p-3 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-center">
+        <MiniInfo label="Ciclos lavagem" valor={margem.ciclosLavagemMes.toString()} />
+        <MiniInfo label="Ciclos secagem" valor={margem.ciclosSecagemMes.toString()} />
+        <MiniInfo label="Custo lavagem mês" valor={fmtBRL(margem.custoLavagem.total * margem.ciclosLavagemMes)} tone="danger" />
+        <MiniInfo label="Custo secagem mês" valor={fmtBRL(margem.custoSecagem.total * margem.ciclosSecagemMes)} tone="danger" />
+        <MiniInfo label="Custo variável mês" valor={fmtBRL(margem.custoTotalInsumosMes)} tone="danger" />
+        <MiniInfo label="Overhead elétrico mês" valor={fmtBRL(margem.overheadCustoMes)} hint={`${margem.overheadKwhMes.toFixed(0)} kWh`} />
+      </div>
+    </div>
+  );
+}
+
+function MargemServicoCard({
+  icone: Icone, titulo, ciclosMes, custoCiclo, margemUnit, margemPct, margemTone, precoCiclo, faturamentoMes, custoTotalMes,
+}: {
+  icone: React.ElementType;
+  titulo: string;
+  ciclosMes: number;
+  custoCiclo: { total: number; componentes: Array<{ rotulo: string; valor: number; cor: string }> };
+  margemUnit: number;
+  margemPct: number;
+  margemTone: "success" | "warning" | "danger";
+  precoCiclo: number;
+  faturamentoMes: number;
+  custoTotalMes: number;
+}) {
+  // Largura de cada bloco da barra proporcional ao custo
+  const totalRow = precoCiclo;
+  return (
+    <div className="rounded-xl border border-border bg-muted/10 p-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="font-display font-bold text-[14px] inline-flex items-center gap-1.5">
+          <Icone className="w-4 h-4 text-brand-cyan" />
+          {titulo}
+        </div>
+        <div className={cn("font-display font-bold text-[15px] tabular-nums",
+          margemTone === "success" && "text-success",
+          margemTone === "warning" && "text-warning",
+          margemTone === "danger"  && "text-danger",
+        )}>
+          {margemPct.toFixed(1)}%
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-[11px] mb-3">
+        <div>
+          <div className="text-muted-foreground">Preço ciclo</div>
+          <div className="font-mono font-bold">{fmtBRL(precoCiclo)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Custo ciclo</div>
+          <div className="font-mono font-bold text-danger">{fmtBRL(custoCiclo.total)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Margem ciclo</div>
+          <div className={cn("font-mono font-bold",
+            margemTone === "success" && "text-success",
+            margemTone === "warning" && "text-warning",
+            margemTone === "danger"  && "text-danger",
+          )}>{fmtBRL(margemUnit)}</div>
+        </div>
+      </div>
+
+      {/* Barra empilhada de composição do custo */}
+      <div className="space-y-1.5">
+        <div className="flex h-6 rounded-md overflow-hidden border border-border">
+          {custoCiclo.componentes.map((c, i) => (
+            <div key={i}
+              style={{ width: `${totalRow > 0 ? (c.valor / totalRow) * 100 : 0}%`, background: c.cor }}
+              title={`${c.rotulo}: ${fmtBRL(c.valor)}`}
+            />
+          ))}
+          <div
+            style={{ width: `${totalRow > 0 ? (margemUnit / totalRow) * 100 : 0}%`, background: "var(--success)" }}
+            title={`Margem: ${fmtBRL(margemUnit)}`}
+          />
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
+          {custoCiclo.componentes.map((c, i) => (
+            <span key={i} className="inline-flex items-center gap-1 text-muted-foreground">
+              <span className="w-2 h-2 rounded-sm" style={{ background: c.cor }} />
+              {c.rotulo} <span className="font-mono">{fmtBRL(c.valor)}</span>
+            </span>
+          ))}
+          <span className="inline-flex items-center gap-1 text-muted-foreground">
+            <span className="w-2 h-2 rounded-sm bg-success" />
+            Margem <span className="font-mono">{fmtBRL(margemUnit)}</span>
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-3 gap-2 text-[11px]">
+        <div>
+          <div className="text-muted-foreground text-[9px] uppercase tracking-wider">Ciclos / mês</div>
+          <div className="font-mono font-bold">{ciclosMes}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground text-[9px] uppercase tracking-wider">Custo no mês</div>
+          <div className="font-mono font-bold text-danger">{fmtBRL(custoTotalMes)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground text-[9px] uppercase tracking-wider">Faturamento</div>
+          <div className="font-mono font-bold text-success">{fmtBRL(faturamentoMes)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniInfo({ label, valor, hint, tone }: { label: string; valor: string; hint?: string; tone?: "danger" | "success" }) {
+  return (
+    <div>
+      <div className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">{label}</div>
+      <div className={cn("font-mono font-bold tabular-nums",
+        tone === "danger" && "text-danger",
+        tone === "success" && "text-success",
+      )}>{valor}</div>
+      {hint && <div className="text-[9px] text-muted-foreground">{hint}</div>}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// EDITOR ENGENHARIA DE CUSTOS
+// ────────────────────────────────────────────────────────────
+function EngenhariaCustosEditor({ unidadeId, engenharia }: {
+  unidadeId: string; engenharia: EngenhariaCustos;
+}) {
+  const [c, setC] = React.useState<EngenhariaCustos>(engenharia);
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+
+  React.useEffect(() => { setC(engenharia); }, [engenharia]);
+
+  function patch<K extends keyof EngenhariaCustos>(k: K, v: EngenhariaCustos[K]) {
+    setC((s) => ({ ...s, [k]: v }));
+  }
+
+  async function salvar() {
+    setSaving(true);
+    await salvarEngenhariaCustos(unidadeId, c);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  const custoLav = calcularCustoLavagem(c, Math.max(1, 100));  // simulação 100 ciclos
+  const custoSec = calcularCustoSecagem(c);
+  const overhead = calcularOverheadEletrico(c);
+  const margemLav = c.preco_lavagem - custoLav.total;
+  const margemSec = c.preco_secagem - custoSec.total;
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-4 border-b border-border bg-gradient-to-r from-brand-cyan/8 to-brand-blue/8 flex items-center gap-3">
+        <Coins className="w-5 h-5 text-brand-cyan" />
+        <div className="flex-1">
+          <div className="font-display font-bold text-[14px]">Engenharia de Custos da unidade</div>
+          <div className="text-[11px] text-muted-foreground">Parâmetros pra calcular margem de contribuição por ciclo</div>
+        </div>
+        <Button size="sm" onClick={salvar} disabled={saving} className="bg-brand-cyan text-primary-foreground">
+          {saving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : saved ? <CheckCircle2 className="w-4 h-4 mr-1" /> : <Save className="w-4 h-4 mr-1" />}
+          {saved ? "Salvo" : "Salvar"}
+        </Button>
+      </div>
+
+      <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Sabão */}
+        <Section icone={FlaskConical} title="Sabão Omo Profissional" preview={`R$ ${custoInsumoCiclo(c.ml_sabao_por_ciclo, c.preco_galao_sabao_litros, c.preco_galao_sabao_valor).toFixed(4)}/ciclo`}>
+          <Campo label="Volume galão (L)" value={c.preco_galao_sabao_litros} onChange={(v) => patch("preco_galao_sabao_litros", v)} suffix="L" />
+          <Campo label="Preço galão (R$)" value={c.preco_galao_sabao_valor} onChange={(v) => patch("preco_galao_sabao_valor", v)} prefix="R$" />
+          <Campo label="Consumo por ciclo (mL)" value={c.ml_sabao_por_ciclo} onChange={(v) => patch("ml_sabao_por_ciclo", v)} suffix="mL" />
+        </Section>
+
+        {/* Amaciante */}
+        <Section icone={Beaker} title="Amaciante Confort Profissional" preview={`R$ ${custoInsumoCiclo(c.ml_amaciante_por_ciclo, c.preco_galao_amaciante_litros, c.preco_galao_amaciante_valor).toFixed(4)}/ciclo`}>
+          <Campo label="Volume galão (L)" value={c.preco_galao_amaciante_litros} onChange={(v) => patch("preco_galao_amaciante_litros", v)} suffix="L" />
+          <Campo label="Preço galão (R$)" value={c.preco_galao_amaciante_valor} onChange={(v) => patch("preco_galao_amaciante_valor", v)} prefix="R$" />
+          <Campo label="Consumo por ciclo (mL)" value={c.ml_amaciante_por_ciclo} onChange={(v) => patch("ml_amaciante_por_ciclo", v)} suffix="mL" />
+        </Section>
+
+        {/* Energia */}
+        <Section icone={Zap} title="Energia elétrica" preview={`Lav R$ ${(c.kwh_por_ciclo_lavagem * c.tarifa_kwh).toFixed(4)} · Sec R$ ${(c.kwh_por_ciclo_secagem * c.tarifa_kwh).toFixed(2)}`}>
+          <Campo label="Tarifa kWh" value={c.tarifa_kwh} onChange={(v) => patch("tarifa_kwh", v)} prefix="R$" decimals={4} />
+          <Campo label="kWh por lavagem" value={c.kwh_por_ciclo_lavagem} onChange={(v) => patch("kwh_por_ciclo_lavagem", v)} suffix="kWh" decimals={3} />
+          <Campo label="kWh por secagem" value={c.kwh_por_ciclo_secagem} onChange={(v) => patch("kwh_por_ciclo_secagem", v)} suffix="kWh" decimals={3} />
+        </Section>
+
+        {/* Água */}
+        <Section icone={Droplets} title="Água" preview="Rateada pelo total de ciclos de lavagem do mês">
+          <Campo label="Conta mensal" value={c.conta_agua_mensal} onChange={(v) => patch("conta_agua_mensal", v)} prefix="R$" />
+        </Section>
+
+        {/* Preços de venda */}
+        <Section icone={DollarSign} title="Preços de venda">
+          <Campo label="Lavagem" value={c.preco_lavagem} onChange={(v) => patch("preco_lavagem", v)} prefix="R$" />
+          <Campo label="Secagem" value={c.preco_secagem} onChange={(v) => patch("preco_secagem", v)} prefix="R$" />
+        </Section>
+
+        {/* Operação */}
+        <Section icone={Clock} title="Operação" preview={`${overhead.kwhMes.toFixed(0)} kWh/mês overhead = R$ ${overhead.custoMes.toFixed(2)}`}>
+          <Campo label="Horas de operação por dia" value={c.horas_operacao_dia} onChange={(v) => patch("horas_operacao_dia", v)} suffix="h" />
+          <Campo label="Dias de operação por mês" value={c.dias_operacao_mes} onChange={(v) => patch("dias_operacao_mes", v)} suffix="d" decimals={0} />
+        </Section>
+      </div>
+
+      {/* Equipamentos sempre ligados */}
+      <div className="px-5 pb-5">
+        <div className="rounded-xl border border-border bg-muted/20 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border bg-card flex items-center gap-2">
+            <Coins className="w-4 h-4 text-warning" />
+            <div className="font-display font-bold text-[13px] inline-flex items-center gap-1.5"><Plug className="w-3.5 h-3.5 text-warning" /> Equipamentos sempre ligados (consumo overhead)</div>
+            <div className="ml-auto text-[11px] text-muted-foreground">
+              Total: <span className="font-mono font-bold text-warning">{overhead.kwhDia.toFixed(2)} kWh/dia</span>
+              {" → "}
+              <span className="font-mono font-bold text-warning">R$ {overhead.custoMes.toFixed(2)}/mês</span>
+            </div>
+          </div>
+          <div className="p-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <Equip label={`Ar-condicionado ${c.ar_condicionado_btus.toLocaleString("pt-BR")} BTUs`} kwh={c.ar_condicionado_kwh_hora}
+              onChange={(v) => patch("ar_condicionado_kwh_hora", v)} />
+            <Equip label={`Lâmpadas (${c.lampadas_qtd}x)`} kwh={c.lampada_kwh_hora}
+              onChange={(v) => patch("lampada_kwh_hora", v)}
+              qtd={c.lampadas_qtd} onChangeQtd={(v) => patch("lampadas_qtd", v)} />
+            <Equip label={`Câmeras (${c.cameras_qtd}x)`} kwh={c.camera_kwh_hora}
+              onChange={(v) => patch("camera_kwh_hora", v)}
+              qtd={c.cameras_qtd} onChangeQtd={(v) => patch("cameras_qtd", v)} />
+            <Equip label="TV 32''" kwh={c.tv_kwh_hora} onChange={(v) => patch("tv_kwh_hora", v)} />
+            <Equip label="Totem de pagamento" kwh={c.totem_kwh_hora} onChange={(v) => patch("totem_kwh_hora", v)} />
+            <Equip label="Internet/telefonia" kwh={c.internet_kwh_hora} onChange={(v) => patch("internet_kwh_hora", v)} />
+          </div>
+        </div>
+      </div>
+
+      {/* Preview consolidado */}
+      <div className="px-5 pb-5">
+        <div className="rounded-xl border-2 border-brand-cyan/30 bg-brand-cyan/5 p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+          <PreviewBox titulo="Custo lavagem" valor={custoLav.total} tone="danger" />
+          <PreviewBox titulo="Margem lavagem" valor={margemLav} suffix={`(${((margemLav / c.preco_lavagem) * 100).toFixed(0)}%)`} tone={margemLav > 8 ? "success" : margemLav > 4 ? "warning" : "danger"} />
+          <PreviewBox titulo="Custo secagem" valor={custoSec.total} tone="danger" />
+          <PreviewBox titulo="Margem secagem" valor={margemSec} suffix={`(${((margemSec / c.preco_secagem) * 100).toFixed(0)}%)`} tone={margemSec > 8 ? "success" : margemSec > 4 ? "warning" : "danger"} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function custoInsumoCiclo(ml: number, litros: number, valor: number): number {
+  if (litros <= 0) return 0;
+  return (ml / (litros * 1000)) * valor;
+}
+
+function Section({ icone: Icone, title, preview, children }: {
+  icone?: React.ElementType; title: string; preview?: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/10 p-4">
+      <div className="flex items-baseline justify-between mb-3 gap-3">
+        <div className="font-display font-bold text-[13px] inline-flex items-center gap-1.5">
+          {Icone && <Icone className="w-3.5 h-3.5 text-brand-cyan" />}
+          {title}
+        </div>
+        {preview && <div className="text-[10px] text-muted-foreground font-mono">{preview}</div>}
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function Campo({ label, value, onChange, prefix, suffix, decimals = 2 }: {
+  label: string; value: number; onChange: (v: number) => void;
+  prefix?: string; suffix?: string; decimals?: number;
+}) {
+  const [local, setLocal] = React.useState(value.toString().replace(".", ","));
+  React.useEffect(() => { setLocal(value.toString().replace(".", ",")); }, [value]);
+  return (
+    <div className="flex items-center gap-2">
+      <label className="text-[11px] text-muted-foreground flex-1">{label}</label>
+      <div className="inline-flex items-center gap-1">
+        {prefix && <span className="text-[10px] text-muted-foreground">{prefix}</span>}
+        <input
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          onBlur={() => {
+            const v = parseFloat(local.replace(",", "."));
+            if (!isNaN(v)) onChange(v);
+          }}
+          className="form-input h-7 w-24 text-[11px] font-mono text-right py-0"
+        />
+        {suffix && <span className="text-[10px] text-muted-foreground">{suffix}</span>}
+      </div>
+      <span className="hidden">{decimals}</span>
+    </div>
+  );
+}
+
+function Equip({ label, kwh, onChange, qtd, onChangeQtd }: {
+  label: string; kwh: number; onChange: (v: number) => void;
+  qtd?: number; onChangeQtd?: (v: number) => void;
+}) {
+  return (
+    <div className="rounded-lg bg-card border border-border p-2.5 space-y-1.5">
+      <div className="text-[11px] font-semibold">{label}</div>
+      <Campo label="kWh/h" value={kwh} onChange={onChange} suffix="kWh" decimals={4} />
+      {onChangeQtd && qtd != null && (
+        <Campo label="Quantidade" value={qtd} onChange={onChangeQtd} decimals={0} />
+      )}
+    </div>
+  );
+}
+
+function PreviewBox({ titulo, valor, suffix, tone }: {
+  titulo: string; valor: number; suffix?: string; tone: "success" | "warning" | "danger";
+}) {
+  return (
+    <div className="text-center">
+      <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">{titulo}</div>
+      <div className={cn("font-display text-xl font-bold tabular-nums mt-1",
+        tone === "success" && "text-success",
+        tone === "warning" && "text-warning",
+        tone === "danger"  && "text-danger",
+      )}>
+        R$ {valor.toFixed(2).replace(".", ",")}
+      </div>
+      {suffix && <div className="text-[10px] text-muted-foreground font-mono">{suffix}</div>}
+    </div>
   );
 }
 
@@ -638,11 +1190,10 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
   }, [mesIdx, data.lancamentos]);
 
   if (!mes) return null;
-  const fatProj = mes.faturamento_projetado;
-  const fatHist = projecao.slice(0, mesIdx).map((p) => p.faturamento_real ?? p.faturamento_projetado);
+  const fatHist = projecao.slice(0, mesIdx).map((p) => p.faturamento_real ?? 0);
   const rbt12 = fatHist.slice(-12).reduce((s, v) => s + v, 0);
 
-  // Overrides de despesas reais: só quando o mês selecionado bate com data.despesas_mes
+  // Overrides de despesas reais — só quando o mês selecionado bate com data.despesas_mes
   const overrides = React.useMemo(() => {
     if (data.despesas_mes.ano !== mes.ano || data.despesas_mes.mes !== mes.mes) return undefined;
     const m = new Map<string, number>();
@@ -657,11 +1208,6 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
     return m;
   }, [data.custos_fixos, data.custos_variaveis, data.despesas_mes, mes.ano, mes.mes]);
 
-  const dreProj = calcularDRE({
-    faturamento: fatProj, rbt12, mes_index: mesIdx,
-    custos_fixos: data.custos_fixos, custos_variaveis: data.custos_variaveis,
-    investimento_total: investimentoTotal,
-  });
   const fatRealNum = fatReal.trim() ? parseFloat(fatReal.replace(",", ".")) : null;
   const dreReal = fatRealNum != null ? calcularDRE({
     faturamento: fatRealNum, rbt12, mes_index: mesIdx,
@@ -686,7 +1232,9 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
   return (
     <>
       <div className="rounded-2xl border border-border bg-card p-4 flex flex-wrap items-center gap-3">
-        <div className="font-display font-bold inline-flex items-center gap-1.5"><FileText className="w-4 h-4 text-brand-cyan" /> DRE — Mês {mesIdx} · {MESES_PT[mes.mes - 1]}/{mes.ano}</div>
+        <div className="font-display font-bold inline-flex items-center gap-1.5">
+          <FileText className="w-4 h-4 text-brand-cyan" /> DRE Real — Mês {mesIdx} · {MESES_PT[mes.mes - 1]}/{mes.ano}
+        </div>
         <div className="flex items-center gap-1 ml-auto">
           <button onClick={() => setMesIdx(Math.max(1, mesIdx - 1))} className="w-8 h-8 rounded border border-border hover:bg-secondary flex items-center justify-center" aria-label="Mês anterior"><ChevronLeft className="w-4 h-4" /></button>
           <select value={mesIdx} onChange={(e) => setMesIdx(parseInt(e.target.value, 10))} className="form-input h-8 py-0 text-[12px] font-mono">
@@ -699,11 +1247,15 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
       <div className="rounded-2xl border border-border bg-card p-4 flex flex-wrap items-center gap-3">
         <span className="text-[11px] text-muted-foreground">Faturamento real:</span>
         <input value={fatReal} onChange={(e) => setFatReal(e.target.value)} placeholder="0,00" className="form-input w-40 font-mono" />
-        <span className="text-[11px] text-muted-foreground">Projetado: <span className="font-mono font-bold">{fmtBRL(fatProj)}</span></span>
-        <Button size="sm" onClick={salvar} disabled={saving} className="bg-brand-cyan text-primary-foreground">
+        {lanc?.fonte === "vendas" && (
+          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md bg-success/15 text-success border border-success/30">
+            <Zap className="w-3 h-3" /> Auto · vendas reais{lanc.qtd_vendas ? ` · ${lanc.qtd_vendas} vendas` : ""}{lanc.ciclos ? ` · ${lanc.ciclos} ciclos` : ""}
+          </span>
+        )}
+        <Button size="sm" onClick={salvar} disabled={saving || lanc?.fonte === "vendas"} className="bg-brand-cyan text-primary-foreground">
           {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />} Salvar
         </Button>
-        <Button size="sm" variant="outline" onClick={async () => { setFatReal(""); await lancarFaturamentoMes({ unidade_id: unidadeId, mes_index: mesIdx, ano: mes.ano, mes: mes.mes, faturamento_real: null }); }}>Limpar</Button>
+        <Button size="sm" variant="outline" disabled={lanc?.fonte === "vendas"} onClick={async () => { setFatReal(""); await lancarFaturamentoMes({ unidade_id: unidadeId, mes_index: mesIdx, ano: mes.ano, mes: mes.mes, faturamento_real: null }); }}>Limpar</Button>
         {data.despesas_mes.ano === mes.ano && data.despesas_mes.mes === mes.mes && (
           <Button size="sm" variant="outline"
             onClick={() => setDespesasOpen(true)}
@@ -729,18 +1281,15 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
         porCategoriaExistente={data.despesas_mes.por_categoria}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <DRECard titulo="Projetado (Viabilidade)" tone="brand-cyan" dre={dreProj} />
-        {dreReal ? (
-          <DRECard titulo="Real (lançado)" tone="success" dre={dreReal} />
-        ) : (
-          <div className="rounded-2xl border-2 border-dashed border-border bg-muted/10 p-6 text-center flex flex-col items-center justify-center">
-            <FileText className="w-8 h-8 text-muted-foreground/40 mb-2" />
-            <div className="text-[13px] font-semibold">Não lançado</div>
-            <div className="text-[11px] text-muted-foreground mt-1">Insira o faturamento real acima e salve.</div>
-          </div>
-        )}
-      </div>
+      {dreReal ? (
+        <DRECard titulo="DRE Real do mês" tone="success" dre={dreReal} />
+      ) : (
+        <div className="rounded-2xl border-2 border-dashed border-border bg-muted/10 p-8 text-center flex flex-col items-center justify-center">
+          <FileText className="w-10 h-10 text-muted-foreground/40 mb-3" />
+          <div className="text-[14px] font-semibold">Sem faturamento real no mês</div>
+          <div className="text-[12px] text-muted-foreground mt-1">Importe vendas em Cadastros → Importações ou digite o valor acima.</div>
+        </div>
+      )}
     </>
   );
 }
@@ -816,7 +1365,7 @@ function DRELinhaSimples({ label, valor, tone }: { label: string; valor: string;
 // ────────────────────────────────────────────────────────────
 // PROJEÇÃO 60 MESES
 // ────────────────────────────────────────────────────────────
-function Projecao60Meses({ projecao, mesAtualIdx }: { projecao: ProjecaoMes[]; mesAtualIdx: number }) {
+export function Projecao60Meses({ projecao, mesAtualIdx }: { projecao: ProjecaoMes[]; mesAtualIdx: number }) {
   return (
     <div className="rounded-2xl border border-border bg-card overflow-hidden">
       <div className="px-5 py-4 border-b border-border flex items-center justify-between">

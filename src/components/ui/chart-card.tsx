@@ -15,8 +15,11 @@ export function ChartCard({
   legend?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
-  height?: number;
+  /** Altura do container do conteúdo. `"auto"` deixa o conteúdo
+   *  ditar a altura (tabelas, listas). Número fixo para gráficos Recharts. */
+  height?: number | "auto";
 }) {
+  const auto = height === "auto";
   return (
     <section
       className={cn(
@@ -34,7 +37,7 @@ export function ChartCard({
 
       {legend && <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-3">{legend}</div>}
 
-      <div className="w-full" style={{ height }}>
+      <div className="w-full" style={auto ? undefined : { height }}>
         {children}
       </div>
     </section>

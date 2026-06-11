@@ -49,20 +49,13 @@ export async function listarImportacoesVendas(): Promise<ImportacaoRow[]> {
   };
   const rows = (imps ?? []) as Raw[];
 
-  // Buscar contagem de vendas que ainda existem (não foram apagadas) por importacao_id
+  // Contagem agregada em SQL — evita corte de 1000 do PostgREST
   const ids = rows.map((r) => r.id);
   const vendasPorImp = new Map<string, number>();
   if (ids.length > 0) {
-    // chunk em 50 (limite query length)
-    for (let i = 0; i < ids.length; i += 50) {
-      const slice = ids.slice(i, i + 50);
-      const { data: vs } = await sb
-        .from("vendas")
-        .select("importacao_id")
-        .in("importacao_id", slice);
-      for (const v of (vs ?? []) as Array<{ importacao_id: string | null }>) {
-        if (v.importacao_id) vendasPorImp.set(v.importacao_id, (vendasPorImp.get(v.importacao_id) ?? 0) + 1);
-      }
+    const { data: contagens } = await sb.rpc("get_vendas_por_importacao", { imp_ids: ids });
+    for (const c of (contagens ?? []) as Array<{ importacao_id: string; total: number | string }>) {
+      vendasPorImp.set(c.importacao_id, Number(c.total) || 0);
     }
   }
 
@@ -141,19 +134,12 @@ export async function listarImportacoesClientes(): Promise<ImportacaoClienteRow[
 
   const totaisPorImp = new Map<string, { total: number; com_venda: number }>();
   if (ids.length > 0) {
-    for (let i = 0; i < ids.length; i += 50) {
-      const slice = ids.slice(i, i + 50);
-      const { data: clientes } = await sb
-        .from("clientes")
-        .select("id, importacao_id, compras_total_qtd")
-        .in("importacao_id", slice);
-      for (const c of (clientes ?? []) as Array<{ id: string; importacao_id: string | null; compras_total_qtd: number | null }>) {
-        if (!c.importacao_id) continue;
-        const cur = totaisPorImp.get(c.importacao_id) ?? { total: 0, com_venda: 0 };
-        cur.total++;
-        if ((c.compras_total_qtd ?? 0) > 0) cur.com_venda++;
-        totaisPorImp.set(c.importacao_id, cur);
-      }
+    const { data: contagens } = await sb.rpc("get_clientes_por_importacao", { imp_ids: ids });
+    for (const c of (contagens ?? []) as Array<{ importacao_id: string; total: number | string; com_venda: number | string }>) {
+      totaisPorImp.set(c.importacao_id, {
+        total: Number(c.total) || 0,
+        com_venda: Number(c.com_venda) || 0,
+      });
     }
   }
 

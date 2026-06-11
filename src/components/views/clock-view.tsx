@@ -35,7 +35,7 @@ const HISTORY = [
   { time: "14:02", type: "insight", text: "Detectada queda de 18% projetada para fechamento de Maio.", severity: "danger" as const },
   { time: "13:45", type: "action", text: "Sugerida campanha de win-back para 107 inativos via WhatsApp.", severity: "info" as const },
   { time: "11:20", type: "alert", text: "PINPAD com 7 timeouts em 2h — investigação iniciada.", severity: "warn" as const },
-  { time: "09:01", type: "summary", text: "Resumo matinal enviado para o WhatsApp do Daniel.", severity: "info" as const },
+  { time: "09:01", type: "summary", text: "Resumo matinal enviado para o WhatsApp do gestor.", severity: "info" as const },
   { time: "07:30", type: "prediction", text: "Pico previsto entre 18h–22h com confiança 87%.", severity: "info" as const },
 ];
 

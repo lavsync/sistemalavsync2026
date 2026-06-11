@@ -2,7 +2,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 
-export type Papel = "master" | "admin" | "operador" | "viewer";
+export type Papel = "master" | "admin" | "gerente" | "operador" | "viewer";
 
 export type UsuarioRow = {
   id: string;

@@ -4,7 +4,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 
-type Papel = "master" | "admin" | "operador" | "viewer";
+type Papel = "master" | "admin" | "gerente" | "operador" | "viewer";
 
 function admin() {
   // Cliente service_role pra Auth Admin API
@@ -229,6 +229,37 @@ export async function resetarSenha(input: ResetSenhaInput | string): Promise<Res
   if (error) throw error;
   revalidatePath("/configuracoes");
   return { senhaTemporaria: senha, senhaFoiGerada };
+}
+
+/** Permite ao próprio usuário trocar a senha (qualquer papel). */
+export async function alterarMinhaSenha(input: { senhaAtual: string; senhaNova: string }) {
+  const sb = await createServerClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error("Sessão expirada. Faça login de novo.");
+  const novaSenha = (input.senhaNova ?? "").trim();
+  if (novaSenha.length < MIN_PASSWORD) {
+    throw new Error(`Senha precisa ter pelo menos ${MIN_PASSWORD} caracteres.`);
+  }
+  if ((input.senhaAtual ?? "").length === 0) {
+    throw new Error("Informe sua senha atual.");
+  }
+  // 1. Re-valida senha atual via signInWithPassword num client temporário
+  const tmp = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
+  const { error: errLogin } = await tmp.auth.signInWithPassword({
+    email: user.email!,
+    password: input.senhaAtual,
+  });
+  if (errLogin) throw new Error("Senha atual incorreta.");
+
+  // 2. Atualiza via service_role
+  const a = admin();
+  const { error } = await a.auth.admin.updateUserById(user.id, { password: novaSenha });
+  if (error) throw error;
+  revalidatePath("/configuracoes");
 }
 
 export async function deletarUsuario(id: string) {

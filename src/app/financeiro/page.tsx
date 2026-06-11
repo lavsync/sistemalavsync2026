@@ -3,7 +3,10 @@ import { FinanceiroView } from "@/components/financeiro/financeiro-view";
 import {
   getConfigUnidade, getInvestimento, getCustosFixos,
   getCustosVariaveis, getLancamentos, getDespesasMes,
+  getFaturamentoMensalVendas, mesclarLancamentosComVendas,
 } from "@/lib/financeiro/queries";
+import { getEngenhariaCustos, getCiclosDoMes } from "@/lib/financeiro/margem-queries";
+import { calcularMargemContribuicao } from "@/lib/financeiro/margem-engine";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -39,14 +42,31 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
   const refMes = params.despesas_mes ?? `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
   const [refAno, refMesNum] = refMes.split("-").map(Number);
 
-  const [config, investimento, custos_fixos, custos_variaveis, lancamentos, despesas_mes] = await Promise.all([
+  const [config, investimento, custos_fixos, custos_variaveis, lancamentosRaw, despesas_mes, vendasMensais, engenharia, ciclosMes] = await Promise.all([
     getConfigUnidade(unidadeId),
     getInvestimento(unidadeId),
     getCustosFixos(unidadeId),
     getCustosVariaveis(unidadeId),
     getLancamentos(unidadeId),
     getDespesasMes(unidadeId, refAno, refMesNum),
+    getFaturamentoMensalVendas(unidadeId),
+    getEngenhariaCustos(unidadeId),
+    getCiclosDoMes(unidadeId, refAno, refMesNum),
   ]);
+
+  // Margem de contribuição do mês de referência
+  const margem = engenharia ? calcularMargemContribuicao(
+    engenharia,
+    ciclosMes.ciclosLavagem,
+    ciclosMes.ciclosSecagem,
+    ciclosMes.faturamentoLavagem,
+    ciclosMes.faturamentoSecagem,
+  ) : null;
+
+  // Sobrescreve/cria faturamento_real a partir das vendas reais
+  const lancamentos = mesclarLancamentosComVendas(lancamentosRaw, vendasMensais, config
+    ? { unidade_id: config.unidade_id, mes_inauguracao: config.mes_inauguracao, ano_inauguracao: config.ano_inauguracao }
+    : null);
 
   return (
     <AppShell>
@@ -66,6 +86,8 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
           por_descricao: Object.fromEntries(despesas_mes.porDescricao),
           total: despesas_mes.totalReal,
         }}
+        engenharia={engenharia}
+        margem={margem}
       />
     </AppShell>
   );

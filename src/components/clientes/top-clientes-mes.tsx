@@ -13,6 +13,7 @@ export function TopClientesMes({ clientes }: { clientes: TopClienteMes[] }) {
       <ChartCard
         title="Top do mês · valor"
         subtitle="Maior gasto nos últimos 30 dias (snapshot atual)"
+        height="auto"
       >
         <div className="text-center py-10 text-muted-foreground">
           <Crown className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -29,6 +30,7 @@ export function TopClientesMes({ clientes }: { clientes: TopClienteMes[] }) {
     <ChartCard
       title="Top do mês · últimos 30 dias"
       subtitle={`R$ ${totalMes.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} dos 10 primeiros · snapshot mais recente`}
+      height="auto"
       actions={
         <div className="hidden md:flex items-center gap-1.5 text-[10px] text-success font-mono">
           <TrendingUp className="w-3 h-3" />

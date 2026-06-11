@@ -21,10 +21,11 @@ import {
 } from "@/lib/usuarios-actions";
 
 const PAPEL_META: Record<Papel, { label: string; icon: React.ElementType; tone: string; desc: string }> = {
-  master:   { label: "Master",   icon: Crown,     tone: "bg-warning/15 text-warning border-warning/30",     desc: "Acesso total · todas as unidades · gerencia usuários" },
-  admin:    { label: "Admin",    icon: ShieldCheck, tone: "bg-brand-purple/15 text-brand-purple border-brand-purple/30", desc: "Acesso a todas as unidades · gerencia usuários" },
-  operador: { label: "Operador", icon: UserCog,   tone: "bg-brand-cyan/15 text-brand-cyan border-brand-cyan/30", desc: "Acesso restrito às unidades atribuídas · operação dia-a-dia" },
-  viewer:   { label: "Viewer",   icon: Eye,       tone: "bg-muted text-muted-foreground border-border",      desc: "Somente leitura · sem editar" },
+  master:   { label: "Master",       icon: Crown,       tone: "bg-warning/15 text-warning border-warning/30",         desc: "Acesso total · todas as unidades · gerencia usuários" },
+  admin:    { label: "Admin",        icon: ShieldCheck, tone: "bg-brand-purple/15 text-brand-purple border-brand-purple/30", desc: "Acesso a todas as unidades · gerencia usuários" },
+  gerente:  { label: "Gerente",      icon: Shield,      tone: "bg-brand-blue/15 text-brand-blue border-brand-blue/30", desc: "Opera tudo · sem excluir crítico · sem gerenciar usuários" },
+  operador: { label: "Operador",     icon: UserCog,     tone: "bg-brand-cyan/15 text-brand-cyan border-brand-cyan/30", desc: "Operação dia-a-dia nas unidades atribuídas" },
+  viewer:   { label: "Visualizador", icon: Eye,         tone: "bg-muted text-muted-foreground border-border",         desc: "Somente leitura · sem editar" },
 };
 
 type Unidade = { id: string; nome: string };
@@ -473,9 +474,11 @@ function NovoUsuarioDialog({
                               })}
                             </div>
                             <p className="text-[10px] text-muted-foreground mt-2">
-                              {papel === "operador"
+                              {papel === "gerente"
+                                ? "O gerente opera apenas nas unidades selecionadas."
+                                : papel === "operador"
                                 ? "O operador só verá dados das unidades selecionadas."
-                                : "O viewer terá leitura apenas nas unidades selecionadas."}
+                                : "O visualizador terá leitura apenas nas unidades selecionadas."}
                             </p>
                           </div>
                         )}

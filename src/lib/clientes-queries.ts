@@ -167,67 +167,35 @@ export async function listarClientes(
 }
 
 export async function getClientesKpis(unidadeIds: string[]): Promise<ClientesKpis> {
+  // Usa RPC SQL agregada pra não bater no limite default de 1000 linhas do Supabase.
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("clientes")
-    .select("ultima_compra_em, cadastrado_em, compras_total_valor, compras_total_qtd, compras_90d_qtd")
-    .in("unidade_id", unidadeIds);
+  const { data, error } = await supabase.rpc("get_clientes_kpis", { unidade_ids: unidadeIds });
   if (error) {
     if (isMissingTable(error)) {
       return { total: 0, ativos90d: 0, emRisco: 0, dormentes: 0, novosUltimos30d: 0, ltvMedio: 0, ticketMedio: 0 };
     }
     throw error;
   }
-  const rows = (data ?? []) as Array<{
-    ultima_compra_em: string | null;
-    cadastrado_em: string | null;
-    compras_total_valor: number | string;
-    compras_total_qtd: number | string;
-    compras_90d_qtd: number | string;
-  }>;
-
-  const agora = Date.now();
-  const dia = 24 * 60 * 60 * 1000;
-  const total = rows.length;
-  let ativos90d = 0,
-    emRisco = 0,
-    dormentes = 0,
-    novosUltimos30d = 0,
-    somaLtv = 0,
-    somaTickets = 0,
-    qtdComCompra = 0;
-
-  for (const r of rows) {
-    const ltv = Number(r.compras_total_valor) || 0;
-    const qtd = Number(r.compras_total_qtd) || 0;
-    somaLtv += ltv;
-    if (qtd > 0) {
-      somaTickets += ltv / qtd;
-      qtdComCompra += 1;
-    }
-    if (r.cadastrado_em) {
-      const diasCad = (agora - new Date(r.cadastrado_em).getTime()) / dia;
-      if (diasCad <= 30) novosUltimos30d += 1;
-    }
-    if (r.ultima_compra_em) {
-      const diasUlt = (agora - new Date(r.ultima_compra_em).getTime()) / dia;
-      if (diasUlt <= 90 || Number(r.compras_90d_qtd) > 0) ativos90d += 1;
-      if (diasUlt > 25 && diasUlt <= 60) emRisco += 1;
-      else if (diasUlt > 60) dormentes += 1;
-    } else if (qtd === 0) {
-      // cadastrou mas nunca comprou → conta como dormente leve
-      dormentes += 1;
-    }
+  const row = (Array.isArray(data) ? data[0] : data) as {
+    total: number | string;
+    ativos_90d: number | string;
+    em_risco: number | string;
+    dormentes: number | string;
+    novos_30d: number | string;
+    ltv_medio: number | string;
+    ticket_medio: number | string;
+  } | null;
+  if (!row) {
+    return { total: 0, ativos90d: 0, emRisco: 0, dormentes: 0, novosUltimos30d: 0, ltvMedio: 0, ticketMedio: 0 };
   }
-
   return {
-    total,
-    ativos90d,
-    emRisco,
-    dormentes,
-    novosUltimos30d,
-    ltvMedio: total > 0 ? Math.round((somaLtv / total) * 100) / 100 : 0,
-    ticketMedio: qtdComCompra > 0 ? Math.round((somaTickets / qtdComCompra) * 100) / 100 : 0,
+    total:              Number(row.total) || 0,
+    ativos90d:          Number(row.ativos_90d) || 0,
+    emRisco:            Number(row.em_risco) || 0,
+    dormentes:          Number(row.dormentes) || 0,
+    novosUltimos30d:    Number(row.novos_30d) || 0,
+    ltvMedio:           Number(row.ltv_medio) || 0,
+    ticketMedio:        Number(row.ticket_medio) || 0,
   };
 }
 
@@ -241,56 +209,13 @@ const SEGMENT_COLORS: Record<string, string> = {
 };
 
 export async function getSegmentacaoRFM(unidadeIds: string[]): Promise<SegmentoRFM[]> {
+  // RPC SQL — evita limite default de 1000 linhas do Supabase
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("clientes")
-    .select("ultima_compra_em, cadastrado_em, compras_total_valor, compras_total_qtd, compras_90d_qtd")
-    .in("unidade_id", unidadeIds);
+  const { data, error } = await supabase.rpc("get_segmentacao_rfm", { unidade_ids: unidadeIds });
   if (error) {
     if (isMissingTable(error)) return [];
     throw error;
   }
-
-  const rows = (data ?? []) as Array<{
-    ultima_compra_em: string | null;
-    cadastrado_em: string | null;
-    compras_total_valor: number | string;
-    compras_total_qtd: number | string;
-    compras_90d_qtd: number | string;
-  }>;
-
-  // Ordenar pra obter percentil de valor (top 20% = campeão)
-  const valores = rows
-    .map((r) => Number(r.compras_total_valor) || 0)
-    .sort((a, b) => b - a);
-  const top20Cut = valores[Math.floor(valores.length * 0.2)] ?? 0;
-
-  const agora = Date.now();
-  const dia = 24 * 60 * 60 * 1000;
-  const counts: Record<string, number> = {};
-
-  for (const r of rows) {
-    const ltv = Number(r.compras_total_valor) || 0;
-    const qtd = Number(r.compras_total_qtd) || 0;
-    const qtd90 = Number(r.compras_90d_qtd) || 0;
-    const diasUlt = r.ultima_compra_em
-      ? (agora - new Date(r.ultima_compra_em).getTime()) / dia
-      : Infinity;
-    const diasCad = r.cadastrado_em
-      ? (agora - new Date(r.cadastrado_em).getTime()) / dia
-      : Infinity;
-
-    let seg: string;
-    if (qtd === 0 && diasCad <= 60) seg = "Novos";
-    else if (ltv >= top20Cut && diasUlt <= 60 && qtd >= 3) seg = "Campeões";
-    else if (qtd >= 3 && diasUlt <= 90) seg = "Leais";
-    else if (qtd <= 2 && qtd > 0 && diasUlt <= 60) seg = "Promissores";
-    else if (diasUlt > 25 && diasUlt <= 60) seg = "Em risco";
-    else seg = "Dormentes";
-
-    counts[seg] = (counts[seg] ?? 0) + 1;
-  }
-
   const descs: Record<string, string> = {
     Campeões: "Top valor + recentes + frequentes",
     Leais: "3+ compras nos últimos 90d",
@@ -299,13 +224,12 @@ export async function getSegmentacaoRFM(unidadeIds: string[]): Promise<SegmentoR
     Dormentes: "Sem compra há 60+ dias",
     Novos: "Cadastraram nos últimos 60d sem comprar",
   };
-
-  return Object.entries(counts)
-    .map(([segment, count]) => ({
-      segment,
-      count,
-      desc: descs[segment] ?? "",
-      color: SEGMENT_COLORS[segment] ?? "var(--muted-foreground)",
+  return ((data ?? []) as Array<{ segmento: string; qtd: number | string }>)
+    .map((r) => ({
+      segment: r.segmento,
+      count: Number(r.qtd) || 0,
+      desc: descs[r.segmento] ?? "",
+      color: SEGMENT_COLORS[r.segmento] ?? "var(--muted-foreground)",
     }))
     .sort((a, b) => b.count - a.count);
 }
@@ -441,23 +365,19 @@ const GENERO_CORES: Record<GeneroSlice["key"], string> = {
 };
 
 export async function getDistribuicaoGenero(unidadeIds: string[]): Promise<GeneroSlice[]> {
+  // RPC SQL — evita limite default de 1000 linhas do Supabase
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("clientes")
-    .select("genero")
-    .in("unidade_id", unidadeIds);
+  const { data, error } = await supabase.rpc("get_distribuicao_genero", { unidade_ids: unidadeIds });
   if (error) {
     if (isMissingTable(error)) return [];
     throw error;
   }
-
   const counts: Record<GeneroSlice["key"], number> = {
     Masculino: 0, Feminino: 0, Outro: 0, "Nao informado": 0,
   };
-  for (const r of (data ?? []) as Array<{ genero: string | null }>) {
-    const g = (r.genero ?? "").trim();
-    if (g === "Masculino" || g === "Feminino" || g === "Outro") counts[g] += 1;
-    else counts["Nao informado"] += 1;
+  for (const r of (data ?? []) as Array<{ genero_key: string; qtd: number | string }>) {
+    const k = (r.genero_key as GeneroSlice["key"]);
+    if (k in counts) counts[k] = Number(r.qtd) || 0;
   }
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
   if (total === 0) return [];
@@ -468,7 +388,7 @@ export async function getDistribuicaoGenero(unidadeIds: string[]): Promise<Gener
       key: k,
       label: k === "Nao informado" ? "Não informado" : k,
       count: counts[k],
-      percent: Math.round((counts[k] / total) * 1000) / 10, // 1 casa
+      percent: Math.round((counts[k] / total) * 1000) / 10,
       color: GENERO_CORES[k],
     }))
     .sort((a, b) => b.count - a.count);

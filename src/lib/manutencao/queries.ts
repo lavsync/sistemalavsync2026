@@ -1,6 +1,7 @@
 // LavSync · Manutenção · Queries
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { paginarTodos } from "@/lib/supabase/pagination";
 
 export type MaquinaTipo = "lavadora" | "secadora" | "dobradora" | "totem";
 export type MaquinaStatus = "ativa" | "manutencao" | "inativa";
@@ -69,15 +70,16 @@ export async function listarMaquinas(unidadeIds?: string[]): Promise<MaquinaComS
   if (unidadesDasMaquinas.length === 0) return [];
 
   const desde30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: vendas } = await sb
-    .from("vendas")
-    .select("equipamento, valor, data_venda, unidade_id")
-    .in("unidade_id", unidadesDasMaquinas)
-    .eq("situacao", "sucesso")
-    .gte("data_venda", desde30);
-
   type Vd = { equipamento: string | null; valor: number | string; data_venda: string; unidade_id: string };
-  const vendasArr = (vendas ?? []) as Vd[];
+  const vendasArr = await paginarTodos<Vd>((r) =>
+    sb
+      .from("vendas")
+      .select("equipamento, valor, data_venda, unidade_id")
+      .in("unidade_id", unidadesDasMaquinas)
+      .eq("situacao", "sucesso")
+      .gte("data_venda", desde30)
+      .range(r.from, r.to),
+  );
 
   const stats = new Map<string, { vendas: number; faturamento: number; ultima: Date | null }>();
   for (const m of lista) {
@@ -116,13 +118,17 @@ export async function detectarEquipamentosNaoCadastrados(unidadeIds: string[]): 
   const sb = await createClient();
   // Tudo do último mês
   const desde30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: vendas } = await sb
-    .from("vendas")
-    .select("equipamento, data_venda")
-    .in("unidade_id", unidadeIds)
-    .eq("situacao", "sucesso")
-    .gte("data_venda", desde30)
-    .not("equipamento", "is", null);
+  type VdEq = { equipamento: string; data_venda: string };
+  const vendas = await paginarTodos<VdEq>((r) =>
+    sb
+      .from("vendas")
+      .select("equipamento, data_venda")
+      .in("unidade_id", unidadeIds)
+      .eq("situacao", "sucesso")
+      .gte("data_venda", desde30)
+      .not("equipamento", "is", null)
+      .range(r.from, r.to),
+  );
   const { data: maqs } = await sb
     .from("maquinas")
     .select("codigo, equipamento_match")
@@ -132,7 +138,7 @@ export async function detectarEquipamentosNaoCadastrados(unidadeIds: string[]): 
   const matches = ((maqs ?? []) as M[]).map((m) => (m.equipamento_match ?? m.codigo).trim()).filter(Boolean);
 
   const agg = new Map<string, { count: number; ultima: Date }>();
-  for (const v of (vendas ?? []) as Array<{ equipamento: string; data_venda: string }>) {
+  for (const v of vendas) {
     if (!v.equipamento) continue;
     if (matches.some((m) => v.equipamento.includes(m))) continue;
     const cur = agg.get(v.equipamento) ?? { count: 0, ultima: new Date(0) };

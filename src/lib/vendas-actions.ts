@@ -1,6 +1,7 @@
 "use server";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { inferirGenero } from "@/lib/genero/inferir";
 
 export type VendaPayload = {
   _linha: number;
@@ -30,6 +31,8 @@ export type VendaPayload = {
   adquirente: string | null;
   tipo_servico: string;
   quantidade_ciclos: number;
+  /** MAXPAN salesReport traz o LTV qtd do cliente em cada linha — útil pra atualizar snapshot */
+  total_compras_cliente?: number | null;
 };
 
 export type ImportVendasResult = {
@@ -38,6 +41,8 @@ export type ImportVendasResult = {
   inseridos: number;
   ignorados: number;
   clientesLinkados: number;
+  clientesCriados: number;
+  clientesAtualizados: number;
   erros: Array<{ linha: number; motivo: string }>;
 };
 
@@ -87,22 +92,118 @@ export async function importarVendas(
   if (errImp) throw errImp;
   const importacaoId = imp!.id as string;
 
-  // Buscar mapping CPF → cliente_id pra unidade
-  const cpfsPayload = Array.from(new Set(payloads.map((p) => p.cpf).filter(Boolean))) as string[];
-  const cpfToId = new Map<string, string>();
-  if (cpfsPayload.length > 0) {
-    // Buscar em batches de 200 (limite IN)
-    for (let i = 0; i < cpfsPayload.length; i += 200) {
-      const slice = cpfsPayload.slice(i, i + 200);
+  // Buscar mapping CPF → cliente pra unidade (busca por dígitos pra ignorar máscara)
+  const cpfsPayloadFormatado = Array.from(new Set(payloads.map((p) => p.cpf).filter(Boolean))) as string[];
+  const cpfsDigitos = Array.from(new Set(cpfsPayloadFormatado.map(digitos).filter((d) => d.length === 11)));
+  type ClienteExistente = {
+    id: string;
+    cpf: string;
+    nome: string | null;
+    telefone: string | null;
+    compras_total_qtd: number | null;
+  };
+  const cpfToCliente = new Map<string, ClienteExistente>();
+  if (cpfsPayloadFormatado.length > 0) {
+    for (let i = 0; i < cpfsPayloadFormatado.length; i += 200) {
+      const slice = cpfsPayloadFormatado.slice(i, i + 200);
       const { data: cli } = await supabase
         .from("clientes")
-        .select("id, cpf")
+        .select("id, cpf, nome, telefone, compras_total_qtd")
         .eq("unidade_id", unidadeId)
         .in("cpf", slice);
-      for (const c of (cli ?? []) as Array<{ id: string; cpf: string }>) {
-        cpfToId.set(digitos(c.cpf), c.id);
+      for (const c of (cli ?? []) as ClienteExistente[]) {
+        cpfToCliente.set(digitos(c.cpf), c);
       }
     }
+  }
+
+  // ─── Auto-criar/atualizar clientes a partir das vendas (foco MAXPAN salesReport) ──
+  // Cada linha MAXPAN traz nome+cpf+telefone+total_compras_cliente. Agrupamos por CPF
+  // e ficamos com o MAIOR total_compras_cliente (snapshot mais recente da janela).
+  const porCpfBest = new Map<string, {
+    cpf: string; nome: string; telefone: string | null; total: number | null; ultimaVenda: string;
+  }>();
+  for (const p of payloads) {
+    if (!p.cpf || !p.nome_cliente) continue;
+    const d = digitos(p.cpf);
+    if (d.length !== 11) continue;
+    const cur = porCpfBest.get(d);
+    const total = p.total_compras_cliente ?? null;
+    const data = p.data_venda;
+    if (!cur) {
+      porCpfBest.set(d, {
+        cpf: p.cpf, nome: p.nome_cliente, telefone: p.telefone_cliente,
+        total, ultimaVenda: data,
+      });
+    } else {
+      if (total != null && (cur.total == null || total > cur.total)) cur.total = total;
+      if (data > cur.ultimaVenda) cur.ultimaVenda = data;
+      if (!cur.telefone && p.telefone_cliente) cur.telefone = p.telefone_cliente;
+    }
+  }
+
+  let clientesCriados = 0;
+  let clientesAtualizados = 0;
+  const novosClientes: Array<Record<string, unknown>> = [];
+  const updatesClientes: Array<{
+    id: string;
+    patch: Record<string, unknown>;
+  }> = [];
+
+  for (const [cpfDig, info] of porCpfBest) {
+    const existente = cpfToCliente.get(cpfDig);
+    if (!existente) {
+      novosClientes.push({
+        tenant_id: unid.tenant_id,
+        unidade_id: unidadeId,
+        nome: info.nome,
+        cpf: info.cpf,
+        telefone: info.telefone,
+        genero: inferirGenero(info.nome),
+        cadastrado_em: info.ultimaVenda,
+        ultima_compra_em: info.ultimaVenda,
+        compras_total_qtd: info.total ?? 1,
+        origem_sistema: meta.origemSistema ?? "maxpan",
+        snapshot_em: meta.snapshotEm ?? null,
+      });
+    } else {
+      const patch: Record<string, unknown> = {};
+      if (!existente.nome && info.nome) patch.nome = info.nome;
+      if (!existente.telefone && info.telefone) patch.telefone = info.telefone;
+      if (info.total != null && (existente.compras_total_qtd ?? 0) < info.total) {
+        patch.compras_total_qtd = info.total;
+      }
+      patch.ultima_compra_em = info.ultimaVenda;
+      patch.snapshot_em = meta.snapshotEm ?? new Date().toISOString();
+      if (Object.keys(patch).length > 0) {
+        updatesClientes.push({ id: existente.id, patch });
+      }
+    }
+  }
+
+  // Insere novos clientes em batches
+  if (novosClientes.length > 0) {
+    for (let i = 0; i < novosClientes.length; i += 200) {
+      const chunk = novosClientes.slice(i, i + 200);
+      const { data: inseridos, error } = await supabase
+        .from("clientes")
+        .insert(chunk)
+        .select("id, cpf");
+      if (!error && inseridos) {
+        clientesCriados += inseridos.length;
+        for (const c of inseridos as Array<{ id: string; cpf: string }>) {
+          cpfToCliente.set(digitos(c.cpf), {
+            id: c.id, cpf: c.cpf, nome: null, telefone: null, compras_total_qtd: null,
+          });
+        }
+      }
+    }
+  }
+
+  // Atualiza clientes existentes
+  for (const u of updatesClientes) {
+    const { error } = await supabase.from("clientes").update(u.patch).eq("id", u.id);
+    if (!error) clientesAtualizados += 1;
   }
 
   // Buscar requisicoes já existentes (dedupe pra MAXPAN/VM modernas, que trazem requisicao).
@@ -133,9 +234,9 @@ export async function importarVendas(
 
     let clienteId: string | null = null;
     if (p.cpf) {
-      const id = cpfToId.get(digitos(p.cpf));
-      if (id) {
-        clienteId = id;
+      const c = cpfToCliente.get(digitos(p.cpf));
+      if (c) {
+        clienteId = c.id;
         clientesLinkados += 1;
       }
     }
@@ -202,6 +303,8 @@ export async function importarVendas(
   }).eq("id", importacaoId);
 
   revalidatePath("/performance");
+  revalidatePath("/clientes");
+  revalidatePath("/");
 
   return {
     importacaoId,
@@ -209,6 +312,8 @@ export async function importarVendas(
     inseridos,
     ignorados: Math.max(0, ignorados),
     clientesLinkados,
+    clientesCriados,
+    clientesAtualizados,
     erros,
   };
 }

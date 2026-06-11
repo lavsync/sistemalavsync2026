@@ -21,9 +21,12 @@ export const NAVIGATION: NavItem[] = [
   { label: "Financeiro", href: "/financeiro", group: "operacional" },
   { label: "Clientes", href: "/clientes", group: "operacional" },
   { label: "Marketing", href: "/publicidade", group: "operacional" },
+  { label: "Tarefas", href: "/tarefas", group: "operacional" },
+  { label: "Rotinas Corporativas", href: "/rotinas-corporativas", group: "operacional" },
   { label: "Agenda", href: "/agenda", group: "operacional" },
 
   // INTELIGÊNCIA
+  { label: "Metas", href: "/metas", group: "inteligencia" },
   { label: "Analytics", href: "/metricas", group: "inteligencia" },
   { label: "Performance", href: "/performance", group: "inteligencia" },
   { label: "Comparativo", href: "/comparativo", group: "inteligencia" },
@@ -32,6 +35,7 @@ export const NAVIGATION: NavItem[] = [
 
   // SISTEMA
   { label: "Automações", href: "/integracoes", group: "sistema" },
+  { label: "Stone Open Banking", href: "/integracoes/stone", group: "sistema", badge: "NOVO", accent: true },
   { label: "Configurações", href: "/configuracoes", group: "sistema" },
 ];
 

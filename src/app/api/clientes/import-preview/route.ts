@@ -83,17 +83,43 @@ function toIsoDate(v: unknown): string | null {
   if (typeof v === "string") {
     const t = v.trim();
     if (!t) return null;
-    // DD/MM/YYYY [HH:MM[:SS]]
+    // PRIORIDADE: BR DD/MM/YYYY (Date.parse interpreta como US MM/DD)
     const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(t);
     if (m) {
       const [, dd, mm, yyyy, h = "0", mi = "0", se = "0"] = m;
       const year = Number(yyyy.length === 2 ? "20" + yyyy : yyyy);
-      return new Date(Date.UTC(year, Number(mm) - 1, Number(dd), Number(h), Number(mi), Number(se))).toISOString();
+      // -03:00 BRT → soma 3h pra ficar em UTC
+      return new Date(Date.UTC(year, Number(mm) - 1, Number(dd), Number(h) + 3, Number(mi), Number(se))).toISOString();
     }
     const ts = Date.parse(t);
     if (!Number.isNaN(ts)) return new Date(ts).toISOString();
   }
   return null;
+}
+
+/** Parser CSV manual — preserva strings (CSV pt-BR quebra com SheetJS). */
+function parseCSVManual(text: string, sep: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else field += c;
+    } else {
+      if (c === '"' && field === "") inQuotes = true;
+      else if (c === sep) { row.push(field); field = ""; }
+      else if (c === "\n") { row.push(field); field = ""; rows.push(row); row = []; }
+      else if (c === "\r") { /* ignora */ }
+      else field += c;
+    }
+  }
+  if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((v) => v.trim() !== ""));
 }
 
 function toDateOnly(v: unknown): string | null {
@@ -172,16 +198,11 @@ export async function POST(req: NextRequest) {
 
   try {
     if (isCsv) {
-      // Parse manual pra pegar separador (XLSX.read CSV auto detecta mas falha em ; com aspas)
-      const text = buf.toString("utf-8").replace(/^﻿/, ""); // BOM
+      // Parser próprio — SheetJS coage "17,00"→1700 e "08/06"→agosto 6
+      const text = buf.toString("utf-8").replace(/^﻿/, "");
       const sep = detectarSepCSV(text);
-      const wb = XLSX.read(text, { type: "string", FS: sep, cellDates: true });
-      sheetName = wb.SheetNames[0];
-      raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
-        header: 1,
-        defval: null,
-        raw: false,
-      });
+      raw = parseCSVManual(text, sep);
+      sheetName = "CSV";
     } else {
       const wb = XLSX.read(buf, { type: "buffer", cellDates: true });
       sheetName = wb.SheetNames[0];

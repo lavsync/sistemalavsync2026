@@ -1,6 +1,7 @@
 // LavSync · Financeiro · Server queries
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { paginarTodos } from "@/lib/supabase/pagination";
 import type { CustoFixo, CustoVariavel } from "./engine";
 
 export type UnidadeConfig = {
@@ -40,6 +41,12 @@ export type LancamentoMes = {
   mes: number;
   faturamento_real: number | null;
   observacoes: string | null;
+  /** "vendas" = veio direto das vendas concluídas no mês ·
+   *  "manual" = valor lançado manualmente ·
+   *  "vazio" = sem dados */
+  fonte?: "vendas" | "manual" | "vazio";
+  qtd_vendas?: number;
+  ciclos?: number;
 };
 
 export async function getConfigUnidade(unidadeId: string): Promise<UnidadeConfig | null> {
@@ -149,6 +156,105 @@ export async function getLancamentos(unidadeId: string): Promise<LancamentoMes[]
     faturamento_real: r.faturamento_real != null ? Number(r.faturamento_real) : null,
     observacoes: (r.observacoes as string | null) ?? null,
   }));
+}
+
+/** Agrega faturamento REAL das vendas concluídas por (ano, mês) da unidade.
+ *  Fonte da verdade pro DRE — sobrescreve o lançamento manual quando há dados. */
+export type FaturamentoMesVendas = {
+  ano: number;
+  mes: number;
+  faturamento: number;
+  qtdVendas: number;
+  ciclos: number;
+};
+
+export async function getFaturamentoMensalVendas(
+  unidadeId: string,
+): Promise<FaturamentoMesVendas[]> {
+  const supabase = await createClient();
+  type Row = { data_venda: string; valor: number | string; quantidade_ciclos: number | string | null };
+  const rows = await paginarTodos<Row>((r) =>
+    supabase
+      .from("vendas")
+      .select("data_venda, valor, quantidade_ciclos")
+      .eq("unidade_id", unidadeId)
+      .eq("situacao", "sucesso")
+      .range(r.from, r.to),
+  );
+  const buckets = new Map<string, { ano: number; mes: number; faturamento: number; qtdVendas: number; ciclos: number }>();
+  for (const r of rows) {
+    const d = new Date(r.data_venda);
+    const ano = d.getUTCFullYear();
+    const mes = d.getUTCMonth() + 1;
+    const k = `${ano}-${String(mes).padStart(2, "0")}`;
+    const cur = buckets.get(k) ?? { ano, mes, faturamento: 0, qtdVendas: 0, ciclos: 0 };
+    cur.faturamento += Number(r.valor) || 0;
+    cur.qtdVendas += 1;
+    cur.ciclos += Number(r.quantidade_ciclos) || 1;
+    buckets.set(k, cur);
+  }
+  return Array.from(buckets.values())
+    .map((b) => ({ ...b, faturamento: Math.round(b.faturamento * 100) / 100 }))
+    .sort((a, b) => (a.ano - b.ano) || (a.mes - b.mes));
+}
+
+/** Calcula o mes_index (1-based) de um (ano, mes) dado o mês/ano de inauguração. */
+function calcMesIndex(ano: number, mes: number, anoInaug: number, mesInaug: number): number {
+  return (ano - anoInaug) * 12 + (mes - mesInaug) + 1;
+}
+
+/** Merge inteligente: combina lançamentos manuais + agregado de vendas reais.
+ *  Se há vendas no mês, são fonte da verdade. Se há lançamento sem vendas, mantém manual.
+ *  Cria entradas VIRTUAIS pra meses com vendas mas sem lançamento prévio (caso comum:
+ *  tabela financeiro_lancamentos vazia mas vendas já importadas). */
+export function mesclarLancamentosComVendas(
+  lancamentos: LancamentoMes[],
+  vendas: FaturamentoMesVendas[],
+  config: { unidade_id: string; mes_inauguracao: number | null; ano_inauguracao: number | null } | null,
+): LancamentoMes[] {
+  const lancMap = new Map<string, LancamentoMes>();
+  for (const l of lancamentos) lancMap.set(`${l.ano}-${String(l.mes).padStart(2, "0")}`, l);
+
+  const vendasMap = new Map<string, FaturamentoMesVendas>();
+  for (const v of vendas) vendasMap.set(`${v.ano}-${String(v.mes).padStart(2, "0")}`, v);
+
+  const todasChaves = new Set<string>([...lancMap.keys(), ...vendasMap.keys()]);
+  const mesInaug = config?.mes_inauguracao ?? null;
+  const anoInaug = config?.ano_inauguracao ?? null;
+
+  const resultado: LancamentoMes[] = [];
+  for (const k of todasChaves) {
+    const [anoStr, mesStr] = k.split("-");
+    const ano = Number(anoStr);
+    const mes = Number(mesStr);
+    const lanc = lancMap.get(k);
+    const v = vendasMap.get(k);
+    // mes_index: usa o do lançamento se existe; senão calcula com base na inauguração
+    const mesIndex = lanc?.mes_index
+      ?? (mesInaug != null && anoInaug != null ? calcMesIndex(ano, mes, anoInaug, mesInaug) : 0);
+    if (mesIndex <= 0) continue; // mês antes da inauguração — ignorado
+
+    if (v && v.faturamento > 0) {
+      // Fonte vendas — prioritária
+      resultado.push({
+        id: lanc?.id ?? `auto-${config?.unidade_id ?? "x"}-${k}`,
+        unidade_id: config?.unidade_id ?? lanc?.unidade_id ?? "",
+        mes_index: mesIndex,
+        ano, mes,
+        faturamento_real: v.faturamento,
+        observacoes: lanc?.observacoes ?? null,
+        fonte: "vendas",
+        qtd_vendas: v.qtdVendas,
+        ciclos: v.ciclos,
+      });
+    } else if (lanc) {
+      resultado.push({
+        ...lanc,
+        fonte: lanc.faturamento_real != null ? "manual" : "vazio",
+      });
+    }
+  }
+  return resultado.sort((a, b) => a.mes_index - b.mes_index);
 }
 
 export function calcInvestimentoTotal(cats: InvestimentoCategoria[]): { projetado: number; real: number; comDado: boolean } {

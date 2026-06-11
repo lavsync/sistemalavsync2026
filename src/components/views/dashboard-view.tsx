@@ -3,9 +3,12 @@
 import {
   Activity, AlertCircle, ArrowRight, BarChart3, Clock, DollarSign,
   ShoppingCart, TrendingUp, TrendingDown, Users, Wallet, Wrench, Zap,
-  Crown, AlertTriangle, Sparkles, Calendar, Tag,
+  Crown, AlertTriangle, Sparkles, Calendar, Tag, Radio, Receipt,
   type LucideIcon,
 } from "lucide-react";
+import { useAutoRefresh } from "@/lib/use-auto-refresh";
+import { RefreshBar } from "@/components/shell/refresh-bar";
+import { cn } from "@/lib/utils";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { ChartCard, LegendDot } from "@/components/ui/chart-card";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -47,6 +50,8 @@ export type DashboardViewProps = {
   hourly: HourlyOccupationPoint[];
   machines: MachineRow[];
   insights: Insight[];
+  usuarioNome?: string;
+  resumoHoje?: import("@/lib/dashboard/queries").ResumoHoje;
 };
 
 const INSIGHT_ICON_MAP: Record<InsightIcone, LucideIcon> = {
@@ -63,8 +68,9 @@ function saudacaoPorHora(): string {
 
 export function DashboardView({
   unidades, selecaoUnidades, periodo, from, to, labelJanela,
-  kpis, timeseries, split, hourly, machines, insights,
+  kpis, timeseries, split, hourly, machines, insights, usuarioNome, resumoHoje,
 }: DashboardViewProps) {
+  const autoRefresh = useAutoRefresh(30, true);
   const today = new Date();
   const hoje = fmtDateBR(today);
   const unidadeRotulo = selecaoUnidades.rotulo;
@@ -92,7 +98,7 @@ export function DashboardView({
               </span>
             </div>
             <h1 className="font-display text-3xl lg:text-4xl font-bold tracking-tight text-white mt-3">
-              {saudacaoPorHora()}, Daniel.
+              {saudacaoPorHora()}{usuarioNome ? `, ${usuarioNome}` : ""}.
             </h1>
             <p className="text-[14px] text-white/85 mt-2">
               {temDados ? (
@@ -108,16 +114,28 @@ export function DashboardView({
             <p className="text-[12px] text-white/65 mt-1 italic">Hoje · {hoje}</p>
           </div>
 
-          <DashboardFilters
-            unidades={unidades}
-            selecaoUnidades={selecaoUnidades}
-            periodo={periodo}
-            from={from}
-            to={to}
-            labelJanela={labelJanela}
-          />
+          <div className="flex flex-col items-end gap-2">
+            <RefreshBar
+              ligado={autoRefresh.ligado}
+              restante={autoRefresh.restante}
+              onAlternar={() => autoRefresh.setLigado(!autoRefresh.ligado)}
+              onRefreshAgora={autoRefresh.refreshAgora}
+              ultima={autoRefresh.ultima}
+            />
+            <DashboardFilters
+              unidades={unidades}
+              selecaoUnidades={selecaoUnidades}
+              periodo={periodo}
+              from={from}
+              to={to}
+              labelJanela={labelJanela}
+            />
+          </div>
         </div>
       </div>
+
+      {/* HOJE EM DESTAQUE */}
+      {resumoHoje && <HojeBanner r={resumoHoje} multiUnidades={selecaoUnidades.ids.length > 1} />}
 
       {/* KPI ROW */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -411,6 +429,103 @@ export function DashboardView({
       <Zap className="hidden" />
       <AlertCircle className="hidden" />
       <BarChart3 className="hidden" />
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// HOJE EM DESTAQUE — banner sempre visível com vendas do dia
+// ────────────────────────────────────────────────────────────
+function HojeBanner({ r, multiUnidades }: { r: import("@/lib/dashboard/queries").ResumoHoje; multiUnidades: boolean }) {
+  const fmt = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const deltaOntem = r.faturamentoOntemMesmoHorario > 0
+    ? ((r.faturamentoHoje - r.faturamentoOntemMesmoHorario) / r.faturamentoOntemMesmoHorario) * 100
+    : null;
+  const minDesde = r.minutosDesdeUltimaVenda;
+  const semVendas = r.vendasHoje === 0;
+  return (
+    <div className="rounded-2xl border border-success/30 bg-gradient-to-br from-success/5 via-card to-card p-5">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="inline-flex items-center gap-2">
+          <span className="relative flex w-2.5 h-2.5">
+            <span className="absolute inset-0 rounded-full bg-success/70 animate-ping" />
+            <span className="relative rounded-full bg-success w-2.5 h-2.5" />
+          </span>
+          <Radio className="w-3.5 h-3.5 text-success animate-pulse" />
+          <span className="text-[10px] uppercase tracking-[0.22em] font-bold text-success">HOJE · AO VIVO</span>
+        </div>
+        {minDesde !== null && (
+          <div className={cn("text-[11px] inline-flex items-center gap-1 font-mono font-bold",
+            minDesde < 5 ? "text-success" : minDesde < 30 ? "text-brand-cyan" : "text-warning")}>
+            <Clock className="w-3 h-3" />
+            última venda há {minDesde}min
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <HojeStat label="Faturamento" valor={`R$ ${fmt(r.faturamentoHoje)}`} tone="success"
+          hint={deltaOntem != null ? `${deltaOntem >= 0 ? "+" : ""}${deltaOntem.toFixed(0)}% vs ontem` : "ainda sem comparativo"} />
+        <HojeStat label="Vendas" valor={r.vendasHoje.toLocaleString("pt-BR")} tone="brand-cyan" hint={`${r.ciclosHoje} ciclos`} />
+        <HojeStat label="Ticket médio" valor={`R$ ${fmt(r.ticketMedioHoje)}`} tone="brand-purple" />
+        <HojeStat label="Clientes únicos" valor={r.clientesUnicosHoje.toString()} tone="warning" />
+        <HojeStat label="Lavagens" valor={r.lavagensHoje.toString()} tone="brand-blue" />
+        <HojeStat label="Secagens" valor={r.secagensHoje.toString()} tone="brand-blue" />
+      </div>
+
+      {r.vendasUltimaHora > 0 && (
+        <div className="mt-4 inline-flex items-center gap-2 rounded-md border border-brand-cyan/30 bg-brand-cyan/8 px-3 py-1.5">
+          <Activity className="w-3.5 h-3.5 text-brand-cyan" />
+          <span className="text-[11px] font-bold text-brand-cyan">Última hora:</span>
+          <span className="text-[11px] font-mono font-bold">R$ {fmt(r.faturamentoUltimaHora)}</span>
+          <span className="text-[10px] text-muted-foreground">· {r.vendasUltimaHora} vendas</span>
+        </div>
+      )}
+
+      {/* Stream de últimas vendas */}
+      {r.ultimasVendas.length > 0 && (
+        <div className="mt-4">
+          <div className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Receipt className="w-3 h-3" /> Últimas vendas
+          </div>
+          <div className="space-y-1 max-h-44 overflow-y-auto custom-scroll-thin">
+            {r.ultimasVendas.slice(0, 8).map((v) => {
+              const min = Math.round((Date.now() - new Date(v.data_venda).getTime()) / 60000);
+              return (
+                <div key={v.id} className="flex items-center gap-2 text-[11px] py-1 border-b border-border/30 last:border-0">
+                  <span className="font-mono text-muted-foreground w-12">{new Date(v.data_venda).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                  <span className="capitalize text-[10px] font-bold uppercase tracking-wider w-16"
+                    style={{ color: v.tipo_servico === "lavagem" ? "var(--brand-cyan)" : v.tipo_servico === "secagem" ? "var(--brand-purple)" : "var(--muted-foreground)" }}>
+                    {v.tipo_servico}
+                  </span>
+                  <span className="font-mono font-bold text-success min-w-[70px]">R$ {fmt(v.valor)}</span>
+                  <span className="text-[10px] text-muted-foreground capitalize">{v.tipo_pagamento}</span>
+                  {v.nome_cliente && <span className="truncate text-muted-foreground flex-1">· {v.nome_cliente.split(" ").slice(0, 2).join(" ")}</span>}
+                  <span className="text-[9px] text-muted-foreground ml-auto">{min < 60 ? `${min}m` : `${Math.floor(min / 60)}h`}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {semVendas && (
+        <div className="mt-4 inline-flex items-center gap-2 text-[12px] text-muted-foreground">
+          <AlertTriangle className="w-3.5 h-3.5 text-warning" />
+          Nenhuma venda registrada hoje ainda. Importe planilha MAXPAN ou aguarde sincronização.
+          {multiUnidades && " · Filtro de unidades pode estar afetando a contagem."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HojeStat({ label, valor, tone, hint }: { label: string; valor: string; tone: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card/60 backdrop-blur p-3">
+      <div className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">{label}</div>
+      <div className={cn("font-display font-bold text-xl tabular-nums mt-0.5", `text-${tone}`)}>{valor}</div>
+      {hint && <div className="text-[10px] text-muted-foreground mt-0.5">{hint}</div>}
     </div>
   );
 }

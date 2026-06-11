@@ -299,6 +299,7 @@ export function ClientesView({
             <ChartCard
               title="Oportunidades de ação · CLOCK"
               subtitle="Sugestões priorizadas a partir do snapshot atual"
+              height="auto"
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <ActionRow icon={MessageSquare} tone="cyan"
@@ -339,6 +340,7 @@ export function ClientesView({
         <ChartCard
           title="Top clientes · LTV total (lifetime)"
           subtitle="Maior valor acumulado em toda a base · ordenado por compras totais"
+          height="auto"
         >
           <div className="overflow-x-auto -mx-2">
             <table className="w-full text-xs">

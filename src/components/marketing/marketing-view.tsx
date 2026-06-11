@@ -19,7 +19,10 @@ import {
   type CampanhaInput,
 } from "@/lib/marketing/actions";
 import { ClubeView } from "./clube-view";
-import type { Classificacao, ResumoClube, TemplateMensagem } from "@/lib/clube/queries";
+import { XoClubView } from "./xoclub-view";
+import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade } from "@/lib/clube/queries";
+import type { ResumoXoClub, SaldoCliente, Produto, Resgate, XoClubConfig } from "@/lib/xoclub/queries";
+import type { SelecaoUnidades } from "@/lib/unidade-multi";
 
 type Unidade = { id: string; nome: string };
 
@@ -55,6 +58,8 @@ const fmtBR = (iso: string) => {
 export function MarketingView({
   campanhas, unidades, unidadeAtivaId,
   clubeResumo, clubeClassificacoes, clubeMesAplicacao, clubeMesesDisponiveis, clubeTemplates,
+  clubeSituacao, clubeSelecaoUnidades,
+  xoclubResumo, xoclubSaldos, xoclubProdutos, xoclubResgates, xoclubConfig,
 }: {
   campanhas: Campanha[];
   unidades: Unidade[];
@@ -64,8 +69,15 @@ export function MarketingView({
   clubeMesAplicacao: string;
   clubeMesesDisponiveis: string[];
   clubeTemplates: TemplateMensagem[];
+  clubeSituacao: SituacaoUnidade[];
+  clubeSelecaoUnidades: SelecaoUnidades;
+  xoclubResumo: ResumoXoClub;
+  xoclubSaldos: SaldoCliente[];
+  xoclubProdutos: Produto[];
+  xoclubResgates: Resgate[];
+  xoclubConfig: XoClubConfig | null;
 }) {
-  const [tab, setTab] = React.useState<"campanhas" | "clube">("campanhas");
+  const [tab, setTab] = React.useState<"campanhas" | "clube" | "xoclub">("campanhas");
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>(unidadeAtivaId);
   const [editando, setEditando] = React.useState<Campanha | "nova" | null>(null);
   const [disparando, setDisparando] = React.useState<string | null>(null);
@@ -102,7 +114,7 @@ export function MarketingView({
         }
       />
 
-      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "campanhas" | "clube")}>
+      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "campanhas" | "clube" | "xoclub")}>
         <Tabs.List className="flex gap-1 rounded-xl border border-border bg-card p-1 w-fit">
           <Tabs.Trigger value="campanhas"
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-cyan data-[state=active]:to-brand-blue data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
@@ -113,6 +125,11 @@ export function MarketingView({
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-warning data-[state=active]:to-brand-cyan data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
             <Trophy className="w-3.5 h-3.5" /> Clube de Vantagens
             <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{clubeResumo.total}</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="xoclub"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-purple data-[state=active]:to-brand-cyan data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
+            <Sparkles className="w-3.5 h-3.5" /> XÔ Club
+            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{xoclubResumo.total_clientes}</span>
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -190,7 +207,20 @@ export function MarketingView({
             mesesDisponiveis={clubeMesesDisponiveis}
             unidades={unidades}
             templates={clubeTemplates}
-            selecaoUnidadeIds={filtroUnidade !== "todas" ? [filtroUnidade] : []}
+            selecaoUnidadeIds={clubeSelecaoUnidades.ids}
+            situacaoUnidades={clubeSituacao}
+            selecaoUnidades={clubeSelecaoUnidades}
+          />
+        </Tabs.Content>
+
+        <Tabs.Content value="xoclub" className="outline-none mt-5">
+          <XoClubView
+            resumo={xoclubResumo}
+            saldos={xoclubSaldos}
+            produtos={xoclubProdutos}
+            resgates={xoclubResgates}
+            config={xoclubConfig}
+            unidades={unidades}
           />
         </Tabs.Content>
       </Tabs.Root>

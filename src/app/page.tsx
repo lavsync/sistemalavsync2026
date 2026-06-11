@@ -6,12 +6,14 @@ import {
   getMachinesStatus,
   getRevenueSplit,
   getRevenueTimeseries,
+  getResumoHoje,
   listarUnidades,
   resolverJanela,
   type Periodo,
 } from "@/lib/dashboard/queries";
 import { gerarInsightsUnidade } from "@/lib/insights/engine";
 import { parseSelecaoUnidades } from "@/lib/unidade-multi";
+import { getUsuarioAtual } from "@/lib/usuarios-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -35,17 +37,21 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
 
   const janela = resolverJanela(periodo, params.from, params.to);
 
-  const [kpis, timeseries, split, hourly, machines, insights] = await Promise.all([
+  const [kpis, timeseries, split, hourly, machines, insights, usuario, resumoHoje] = await Promise.all([
     getDashboardKpis(selecao.ids, janela),
     getRevenueTimeseries(selecao.ids, janela),
     getRevenueSplit(selecao.ids, janela),
     getHourlyOccupation(selecao.ids, janela),
     getMachinesStatus(selecao.ids, janela),
-    // Insights só fazem sentido pra UMA unidade (heurísticas específicas)
     selecao.ids.length === 1
       ? gerarInsightsUnidade(selecao.ids[0]).catch(() => [])
       : Promise.resolve([]),
+    getUsuarioAtual(),
+    getResumoHoje(selecao.ids),
   ]);
+
+  // Primeiro nome (saudação no hero)
+  const primeiroNome = usuario?.nome?.trim().split(/\s+/)[0] ?? "";
 
   return (
     <AppShell>
@@ -62,6 +68,8 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
         hourly={hourly}
         machines={machines}
         insights={insights}
+        usuarioNome={primeiroNome}
+        resumoHoje={resumoHoje}
       />
     </AppShell>
   );
