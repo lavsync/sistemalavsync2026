@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { inferirGenero } from "@/lib/genero/inferir";
+import { processarOutboxCastelo } from "@/lib/castelo-webhook/processor";
 
 export type VendaPayload = {
   _linha: number;
@@ -317,6 +318,15 @@ export async function importarVendas(
   revalidatePath("/performance");
   revalidatePath("/clientes");
   revalidatePath("/");
+
+  // Flush near-real-time da outbox do Clube Castelo: o trigger AFTER INSERT
+  // já enfileirou as vendas confirmadas da Castelo com CPF; entregamos agora.
+  // Best-effort — nunca quebra/atrasa criticamente o resultado do import.
+  try {
+    await processarOutboxCastelo({ limite: 500 });
+  } catch {
+    // o cron diário reprocessa o que ficar pendente
+  }
 
   return {
     importacaoId,

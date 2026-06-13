@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/stone-sync",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/castelo-webhook",
+      "schedule": "0 4 * * *"
     }
   ]
 }
