@@ -36,6 +36,11 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/auth") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico" ||
+    // ─── Endpoints máquina-a-máquina (autenticam via Bearer próprio) ──
+    // Cron Vercel (CRON_SECRET) e webhooks externos (secret próprio).
+    // Não podem ser redirecionados pro HTML de login.
+    pathname.startsWith("/api/cron") ||
+    pathname.startsWith("/api/webhooks") ||
     // ─── Páginas legais públicas (LGPD) ──────────────────────────────
     pathname.startsWith("/politica-de-privacidade") ||
     pathname.startsWith("/termos-de-uso") ||
