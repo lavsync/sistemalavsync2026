@@ -11,7 +11,7 @@ export default async function CadastroParceiroPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login?redirect=/parceiro/cadastro");
+    redirect("/parceiro/login?redirect=/parceiro/cadastro");
   }
 
   // Se já tem partner vinculado, manda pro dashboard

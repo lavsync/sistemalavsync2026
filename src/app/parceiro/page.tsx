@@ -10,5 +10,5 @@ export default async function ParceiroIndex() {
   } = await supabase.auth.getUser();
 
   if (user) redirect("/parceiro/dashboard");
-  redirect("/login");
+  redirect("/parceiro/login");
 }

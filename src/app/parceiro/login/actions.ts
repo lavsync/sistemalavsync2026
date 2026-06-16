@@ -23,7 +23,7 @@ export async function sendMagicLinkAction(
   }
 
   const h = await headers();
-  const origin = h.get("origin") ?? "https://midindoor.grupoescalize.com.br";
+  const origin = h.get("origin") ?? "https://sistema.lavsync.com.br";
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
@@ -52,7 +52,7 @@ export async function sendMagicLinkAction(
  */
 export async function signInWithGoogleAction() {
   const h = await headers();
-  const origin = h.get("origin") ?? "https://midindoor.grupoescalize.com.br";
+  const origin = h.get("origin") ?? "https://sistema.lavsync.com.br";
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithOAuth({

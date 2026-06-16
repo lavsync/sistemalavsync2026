@@ -104,7 +104,7 @@ const videoHero: TemplatePreset = {
           id: id(),
           type: "qrcode",
           x: 1500, y: 660, width: 300, height: 380, rotation: 0, opacity: 1, zIndex: 5,
-          source: "website", value: "https://midindoor.grupoescalize.com.br/buritis/clube-de-beneficios",
+          source: "website", value: "https://sistema.lavsync.com.br/m/xo-varal-buritis/clube-de-beneficios",
           fgColor: "#ffffff", bgColor: "#0f1720", level: "M", margin: 2,
           label: "Saiba mais", labelColor: "#a7f3d0", labelSize: 22,
           motion: { preset: "fade-in", delay: 1000, duration: 600 },
