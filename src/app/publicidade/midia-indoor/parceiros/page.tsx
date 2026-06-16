@@ -39,7 +39,7 @@ export default async function ParceirosPage() {
 
   let query = supabase
     .from("mi_partners")
-    .select("*, units(name, slug), partner_categories(label, icon)")
+    .select("*, units:mi_units(name, slug), partner_categories:mi_partner_categories(label, icon)")
     .order("created_at", { ascending: false });
 
   if (profile.role !== "master" && profile.unidade_id) {

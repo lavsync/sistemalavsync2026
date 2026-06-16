@@ -33,9 +33,9 @@ export async function GET(request: NextRequest, ctx: RouteContext) {
       `id, name, priority, duration_seconds, status, starts_at, ends_at,
        headline, subheadline, cta_label, cta_url, media_url, media_type,
        editor_template_id,
-       templates(slug, name),
-       partners(id, name, slug, logo_url),
-       offers(id, title, coupon, banner_url),
+       templates:mi_templates(slug, name),
+       partners:mi_partners(id, name, slug, logo_url),
+       offers:mi_offers(id, title, coupon, banner_url),
        qr_codes!campaigns_qr_code_id_fkey(short_code, target_url)`,
     )
     .eq("unidade_id", unit.id)

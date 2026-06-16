@@ -20,7 +20,7 @@ export default async function EditarOfertaPage({
   const [{ data: offer }, partnersRes] = await Promise.all([
     supabase.from("mi_offers").select("*").eq("id", id).single(),
     (() => {
-      let q = supabase.from("mi_partners").select("*, units(name)").order("name");
+      let q = supabase.from("mi_partners").select("*, units:mi_units(name)").order("name");
       if (profile.role !== "master" && profile.unidade_id) q = q.eq("unidade_id", profile.unidade_id);
       return q;
     })(),

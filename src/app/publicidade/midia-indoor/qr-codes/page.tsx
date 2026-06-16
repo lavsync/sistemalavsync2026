@@ -37,7 +37,7 @@ export default async function QrCodesPage() {
   let qrQuery = supabase
     .from("mi_qr_codes")
     .select(
-      "*, units(name, slug), partners(name), offers(title), campaigns(name)",
+      "*, units:mi_units(name, slug), partners:mi_partners(name), offers:mi_offers(title), campaigns:mi_campaigns!mi_qr_codes_campaign_id_fkey(name)",
     )
     .order("created_at", { ascending: false });
 

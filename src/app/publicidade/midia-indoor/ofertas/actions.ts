@@ -56,7 +56,7 @@ export async function createOfferAction(
     const admin = createAdminClient();
     const { data: partner } = await admin
       .from("mi_partners")
-      .select("unidade_id, slug, name, units(slug)")
+      .select("unidade_id, slug, name, units:mi_units(slug)")
       .eq("id", offer.partner_id)
       .single<{ unidade_id: string; slug: string; name: string; units: { slug: string } | null }>();
 

@@ -61,7 +61,7 @@ export default async function DashboardPage() {
   const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   let expiringQuery = supabase
     .from("mi_campaigns")
-    .select("id, name, ends_at, unidade_id, units(slug, name)")
+    .select("id, name, ends_at, unidade_id, units:mi_units(slug, name)")
     .eq("status", "ativa")
     .not("ends_at", "is", null)
     .lte("ends_at", sevenDaysFromNow)
@@ -73,7 +73,7 @@ export default async function DashboardPage() {
   // Últimos leads
   let leadsQuery = supabase
     .from("mi_partner_leads")
-    .select("id, business_name, segment, status, created_at, unidade_id, units(slug, name)")
+    .select("id, business_name, segment, status, created_at, unidade_id, units:mi_units(slug, name)")
     .order("created_at", { ascending: false })
     .limit(5);
   if (unitFilter) leadsQuery = leadsQuery.eq("unidade_id", unitFilter);

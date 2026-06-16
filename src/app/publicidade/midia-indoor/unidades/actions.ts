@@ -36,9 +36,33 @@ export async function createUnitAction(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from("mi_units").insert(parsed.data);
+
+  // No modelo consolidado, cada mi_unit é 1:1 com uma unidade do LavSync.
+  // Criamos a unidade base e vinculamos a mi_unit a ela.
+  const TENANT_ID = "00000000-0000-0000-0000-000000000001";
+  const { data: unidade, error: uErr } = await supabase
+    .from("unidades")
+    .insert({
+      tenant_id: TENANT_ID,
+      nome: parsed.data.name,
+      cidade: parsed.data.city ?? null,
+      bairro: parsed.data.neighborhood ?? null,
+      endereco: parsed.data.address ?? null,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (uErr || !unidade) {
+    return { ok: false, error: uErr?.message ?? "Falha ao criar unidade base" };
+  }
+
+  const { error } = await supabase
+    .from("mi_units")
+    .insert({ ...parsed.data, unidade_id: unidade.id });
 
   if (error) {
+    // rollback da unidade base se a mi_unit falhar
+    await supabase.from("unidades").delete().eq("id", unidade.id);
     if (error.code === "23505") {
       return { ok: false, error: "Já existe uma unidade com esse slug" };
     }

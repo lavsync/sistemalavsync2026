@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   let query = admin
     .from("mi_qr_codes")
     .select(
-      "id, short_code, purpose, utm_campaign, created_at, partners(name), offers(title), campaigns(name), units(name, slug)",
+      "id, short_code, purpose, utm_campaign, created_at, partners:mi_partners(name), offers:mi_offers(title), campaigns:mi_campaigns!mi_qr_codes_campaign_id_fkey(name), units:mi_units(name, slug)",
     )
     .order("created_at", { ascending: false })
     .limit(200);

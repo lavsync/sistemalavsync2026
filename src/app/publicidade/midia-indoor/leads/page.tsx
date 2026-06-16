@@ -38,7 +38,7 @@ export default async function LeadsPage() {
 
   let query = supabase
     .from("mi_partner_leads")
-    .select("*, units(name, slug)")
+    .select("*, units:mi_units(name, slug)")
     .order("created_at", { ascending: false });
 
   if (profile.role !== "master" && profile.unidade_id) {

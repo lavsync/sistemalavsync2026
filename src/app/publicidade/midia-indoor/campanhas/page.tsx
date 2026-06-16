@@ -40,7 +40,7 @@ export default async function CampanhasPage() {
   let query = supabase
     .from("mi_campaigns")
     .select(
-      "*, units(name, slug), templates(name, slug), partners(name)",
+      "*, units:mi_units(name, slug), templates:mi_templates(name, slug), partners:mi_partners(name)",
     )
     .order("created_at", { ascending: false });
 

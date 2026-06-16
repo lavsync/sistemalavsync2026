@@ -70,7 +70,7 @@ export const campaignSchema = z.object({
   unidade_id: z.string().uuid(),
   partner_id: z.string().uuid().optional().nullable(),
   offer_id: z.string().uuid().optional().nullable(),
-  template_id: z.string().uuid(),
+  template_id: z.string().uuid().optional().nullable(),
   editor_template_id: z.string().uuid().optional().nullable(),
   name: z.string().min(2).max(120),
   type: z.string().max(40).default("padrao"),

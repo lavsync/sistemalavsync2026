@@ -33,7 +33,7 @@ export default async function OfertasPage() {
 
   let query = supabase
     .from("mi_offers")
-    .select("*, partners(id, name, logo_url, unidade_id, units(name, slug))")
+    .select("*, partners:mi_partners(id, name, logo_url, unidade_id, units:mi_units(name, slug))")
     .order("created_at", { ascending: false });
 
   // Para gestor, filtrar por unidade_id via partner. RLS faz isso automaticamente,

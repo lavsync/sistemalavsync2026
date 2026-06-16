@@ -59,7 +59,7 @@ export default async function MetricasPage() {
       let q = supabase
         .from("mi_qr_clicks")
         .select(
-          "qr_code_id, qr_codes(purpose, short_code, partners(name), offers(title))",
+          "qr_code_id, qr_codes(purpose, short_code, partners:mi_partners(name), offers:mi_offers(title))",
         )
         .gte("clicked_at", since);
       if (unitFilter) q = q.eq("unidade_id", unitFilter);
@@ -68,7 +68,7 @@ export default async function MetricasPage() {
     (async () => {
       let q = supabase
         .from("mi_campaign_impressions")
-        .select("campaign_id, campaigns(name, priority, partners(name))")
+        .select("campaign_id, campaigns:mi_campaigns(name, priority, partners:mi_partners(name))")
         .gte("shown_at", since);
       if (unitFilter) q = q.eq("unidade_id", unitFilter);
       return q.limit(2000);

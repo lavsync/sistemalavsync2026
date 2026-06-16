@@ -17,7 +17,7 @@ export default async function NovaOfertaPage({
 
   let query = supabase
     .from("mi_partners")
-    .select("*, units(name)")
+    .select("*, units:mi_units(name)")
     .eq("status", "ativo")
     .order("name");
 

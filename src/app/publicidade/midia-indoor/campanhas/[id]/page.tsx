@@ -35,7 +35,7 @@ export default async function EditarCampanhaPage({
       ? supabase.from("mi_units").select("*").order("name")
       : supabase.from("mi_units").select("*").eq("id", profile.unidade_id ?? "").order("name"),
     (() => {
-      let q = supabase.from("mi_partners").select("*, units(name)").order("name");
+      let q = supabase.from("mi_partners").select("*, units:mi_units(name)").order("name");
       if (profile.role !== "master" && profile.unidade_id) q = q.eq("unidade_id", profile.unidade_id);
       return q;
     })(),

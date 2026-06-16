@@ -39,7 +39,7 @@ export default async function ParceiroLeadsPage() {
   // QR codes do parceiro
   const { data: qrCodes } = await admin
     .from("mi_qr_codes")
-    .select("id, short_code, purpose, offers(title), created_at")
+    .select("id, short_code, purpose, offers:mi_offers(title), created_at")
     .eq("partner_id", partner.id);
 
   const qrIds = (qrCodes ?? []).map((q: { id: string }) => q.id);

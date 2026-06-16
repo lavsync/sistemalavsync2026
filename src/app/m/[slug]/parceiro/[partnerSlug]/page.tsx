@@ -45,7 +45,7 @@ export default async function ParceiroPage({
 
   const { data: partner } = await supabase
     .from("mi_partners")
-    .select("*, partner_categories(label), units(slug, name)")
+    .select("*, partner_categories:mi_partner_categories(label), units:mi_units(slug, name)")
     .eq("slug", partnerSlug)
     .eq("unidade_id", unit.id)
     .eq("status", "ativo")

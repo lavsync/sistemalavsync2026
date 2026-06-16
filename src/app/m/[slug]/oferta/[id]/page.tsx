@@ -39,7 +39,7 @@ export default async function OfertaPage({
   const { data: offer } = await supabase
     .from("mi_offers")
     .select(
-      "*, partners(id, slug, name, logo_url, whatsapp, instagram, website, short_description, unidade_id, units(slug, name))",
+      "*, partners:mi_partners(id, slug, name, logo_url, whatsapp, instagram, website, short_description, unidade_id, units:mi_units(slug, name))",
     )
     .eq("id", id)
     .eq("status", "ativa")

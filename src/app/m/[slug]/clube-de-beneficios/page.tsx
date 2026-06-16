@@ -42,7 +42,7 @@ export default async function ClubeDeBeneficiosPage({
     supabase
       .from("mi_partners")
       .select(
-        "*, partner_categories(slug, label), offers(id, title, is_featured, status)",
+        "*, partner_categories:mi_partner_categories(slug, label), offers:mi_offers(id, title, is_featured, status)",
       )
       .eq("unidade_id", unit.id)
       .eq("status", "ativo")
@@ -51,7 +51,7 @@ export default async function ClubeDeBeneficiosPage({
     supabase
       .from("mi_offers")
       .select(
-        "id, title, description, banner_url, coupon, expires_at, partner_id, partners(id, slug, name, logo_url, unidade_id)",
+        "id, title, description, banner_url, coupon, expires_at, partner_id, partners:mi_partners(id, slug, name, logo_url, unidade_id)",
       )
       .eq("is_featured", true)
       .eq("status", "ativa")
