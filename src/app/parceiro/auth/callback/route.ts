@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
     if (error) {
       return NextResponse.redirect(
-        `${origin}/parceiro/login?error=${encodeURIComponent(error.message)}`,
+        `${origin}/login?error=${encodeURIComponent(error.message)}`,
       );
     }
     return response;
@@ -54,11 +54,11 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
       return NextResponse.redirect(
-        `${origin}/parceiro/login?error=${encodeURIComponent(error.message)}`,
+        `${origin}/login?error=${encodeURIComponent(error.message)}`,
       );
     }
     return response;
   }
 
-  return NextResponse.redirect(`${origin}/parceiro/login?error=invalid_callback`);
+  return NextResponse.redirect(`${origin}/login?error=invalid_callback`);
 }

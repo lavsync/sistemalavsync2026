@@ -16,7 +16,7 @@ export async function requirePartnerUser() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect("/parceiro/login");
+  if (!user) redirect("/login");
 
   const admin = createAdminClient();
 
