@@ -277,7 +277,16 @@ Tudo passa a viver em `sistema.lavsync.com.br`. **Quebra o que já está na rua*
 - [x] **FASE B** — migrations `0031` (15 tabelas mi_* + RLS) e `0032` (colunas extras do parceiro) **aplicadas** no Supabase LavSync. Buckets `logos`(2MB)/`banners`(8MB)/`campaigns`(50MB — teto Hobby) criados.
 - [x] **FASE C** — dados migrados e **verificados** (contagens == origem): categorias 12, templates 6, units 2, partners 3, offers 2, editor_templates 2, campaigns 2, qr_codes 3, player_sessions 16, impressions **2054** (paginação salvou >1000), settings 3. Storage: logos 4, banners 8, campaigns 3 objetos copiados.
 - [x] Commit `42036da` na branch + push GitHub (backup).
-- [ ] **FASE D · E · F** — pendentes (port de código).
+- [x] **FASE D** — ~166 arquivos portados sob `@mi/*`; rotas em `/publicidade/midia-indoor`, `/m/[slug]`, `/player`, `/qr`, `/parceiro`, `/api/midia-indoor`; shim de auth; AppShell; proxy whitelist; nav; migration 0035 (default tenant_id); deps instaladas. Página de login do parceiro criada.
+- [x] **FASE E** — `npm run build` OK (40 rotas).
+- [x] **FASE F** — deploy `vercel --prod` READY em `sistema.lavsync.com.br`. Smoke OK: /login 200, /publicidade/midia-indoor 307→login, /m/xo-varal-buritis/clube 200, /player/xo-varal-buritis 200, playlist com token 200 (itens reais), /parceiro/login 200.
+
+### Pendências externas (dependem de ação fora do código)
+- [ ] `PEXELS_API_KEY` (estava VAZIA na origem) — setar na Vercel p/ busca de stocks no editor.
+- [ ] Google OAuth: cadastrar redirect `https://sistema.lavsync.com.br/parceiro/auth/callback` no Supabase Auth + Google Cloud (login parceiro por magic link já funciona).
+- [ ] Domínio/QR/TV: reconfigurar Chromecasts e reimprimir QR p/ `sistema.lavsync.com.br` (short_code preservado).
+- [ ] Rotacionar os 3 tokens (Vercel/Supabase/GitHub) passados no chat.
+- [ ] RBAC: criar permissão "Mídia Indoor" se quiser ocultar o menu de papéis sem acesso (hoje aparece p/ todos os logados).
 
 > ⚠️ **campaigns = 50MB** no LavSync (Hobby limita upload global). Imagens de celular cabem; vídeos >50MB não. Bumpar quando subir de plano.
 
