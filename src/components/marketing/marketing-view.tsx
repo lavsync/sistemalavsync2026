@@ -91,7 +91,9 @@ export function MarketingView({
     setDisparando(c.id);
     try {
       const r = await dispararCampanha(c.id);
-      alert(`✓ ${r.destinatarios} destinatários · ${r.envios} envios registrados.`);
+      alert(
+        `✓ ${r.destinatarios} alvos · ${r.envios} enfileirados${r.suprimidos > 0 ? ` · ${r.suprimidos} suprimidos por opt-out (SAIR/SAIRPROMO)` : ""}.`,
+      );
     } catch (e) {
       alert("Erro: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -139,7 +141,7 @@ export function MarketingView({
       <div className="rounded-xl border border-warning/30 bg-gradient-to-br from-warning/[0.06] to-transparent p-4 flex items-center gap-3">
         <Sparkles className="w-4 h-4 text-warning shrink-0" />
         <div className="flex-1 text-[12px]">
-          <strong>WhatsApp não conectado ainda.</strong> Por ora, ao disparar uma campanha o sistema apenas registra os envios + mensagens renderizadas no log. Você consegue exportar e disparar manualmente. Próximo passo: integração Z-API/Twilio.
+          <strong>WhatsApp não conectado ainda.</strong> A engine CLOCK Relacionamento já está ativa: ao disparar, o sistema renderiza as mensagens, aplica opt-out (SAIR/SAIRPROMO) e enfileira tudo na fila unificada (em dry-run). Você consegue exportar e disparar manualmente. Próximo passo: provider oficial Meta WhatsApp Cloud API.
         </div>
       </div>
 

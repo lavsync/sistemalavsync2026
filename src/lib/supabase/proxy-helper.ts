@@ -41,6 +41,15 @@ export async function updateSession(request: NextRequest) {
     // Não podem ser redirecionados pro HTML de login.
     pathname.startsWith("/api/cron") ||
     pathname.startsWith("/api/webhooks") ||
+    // ─── Mídia Indoor — rotas públicas (player TV, sites de clube, QR) ──
+    pathname.startsWith("/m/") ||
+    pathname.startsWith("/player") ||
+    pathname.startsWith("/qr") ||
+    pathname.startsWith("/parceiro") ||
+    pathname.startsWith("/quero-ser-parceiro") ||
+    pathname.startsWith("/api/midia-indoor/player") ||
+    pathname.startsWith("/api/midia-indoor/qr-codes") ||
+    pathname.startsWith("/api/midia-indoor/stocks") ||
     // ─── Páginas legais públicas (LGPD) ──────────────────────────────
     pathname.startsWith("/politica-de-privacidade") ||
     pathname.startsWith("/termos-de-uso") ||

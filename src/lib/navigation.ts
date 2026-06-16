@@ -21,6 +21,7 @@ export const NAVIGATION: NavItem[] = [
   { label: "Financeiro", href: "/financeiro", group: "operacional" },
   { label: "Clientes", href: "/clientes", group: "operacional" },
   { label: "Marketing", href: "/publicidade", group: "operacional" },
+  { label: "Mídia Indoor", href: "/publicidade/midia-indoor", group: "operacional", badge: "NOVO", accent: true },
   { label: "Tarefas", href: "/tarefas", group: "operacional" },
   { label: "Rotinas Corporativas", href: "/rotinas-corporativas", group: "operacional" },
   { label: "Agenda", href: "/agenda", group: "operacional" },
