@@ -272,7 +272,64 @@ Tudo passa a viver em `sistema.lavsync.com.br`. **Quebra o que já está na rua*
 ---
 
 ## 9. Estado da execução (atualizar conforme avança)
-- [x] Runbook escrito (este arquivo).
-- [ ] FASE A · B · C · D · E · F.
+- [x] Runbook escrito.
+- [x] **FASE A** — branch `feat/midia-indoor` criada; Supabase LavSync ativo.
+- [x] **FASE B** — migrations `0031` (15 tabelas mi_* + RLS) e `0032` (colunas extras do parceiro) **aplicadas** no Supabase LavSync. Buckets `logos`(2MB)/`banners`(8MB)/`campaigns`(50MB — teto Hobby) criados.
+- [x] **FASE C** — dados migrados e **verificados** (contagens == origem): categorias 12, templates 6, units 2, partners 3, offers 2, editor_templates 2, campaigns 2, qr_codes 3, player_sessions 16, impressions **2054** (paginação salvou >1000), settings 3. Storage: logos 4, banners 8, campaigns 3 objetos copiados.
+- [x] Commit `42036da` na branch + push GitHub (backup).
+- [ ] **FASE D · E · F** — pendentes (port de código).
 
-> Próximo passo sugerido: escrever `supabase/migrations/0031_midia_indoor.sql` (Fase B1).
+> ⚠️ **campaigns = 50MB** no LavSync (Hobby limita upload global). Imagens de celular cabem; vídeos >50MB não. Bumpar quando subir de plano.
+
+---
+
+## 10. FASE D — Guia cirúrgico de port (detalhe descoberto)
+
+### 10.1 Estratégia de imports (evitar colisão com `@/components`, `@/lib` do LavSync)
+- Criar `src/midia-indoor/` com os internos do XV (stores, types, components, lib-helpers).
+- Adicionar alias no `tsconfig.json`: `"@mi/*": ["./src/midia-indoor/*"]`.
+- Reescrever nos arquivos portados: `@/stores`→`@mi/stores`, `@/types`→`@mi/types`, `@/components`→`@mi/components`, `@/lib/X`→`@mi/lib/X`.
+- **EXCEÇÃO:** `@/lib/supabase/*` **NÃO** vira `@mi` — usar os clients do LavSync (`server.ts`/`client.ts`/`admin.ts`). Truque sed: proteger `@/lib/supabase` antes de trocar `@/lib`.
+
+### 10.2 Map de renomeação de tabelas (counts no XV)
+`units`→`mi_units`(27) · `partners`→`mi_partners`(23) · `offers`→`mi_offers`(23) · `editor_templates`→`mi_editor_templates`(16) · `qr_codes`→`mi_qr_codes`(9) · `qr_clicks`→`mi_qr_clicks`(9) · `campaigns`→`mi_campaigns`(9) · `partner_leads`→`mi_partner_leads`(5) · `partner_categories`→`mi_partner_categories`(4) · `campaign_impressions`→`mi_campaign_impressions`(3) · `templates`→`mi_templates`(2) · `player_sessions`→`mi_player_sessions`(2) · `settings`→`mi_settings`(1) · `club_members`→`mi_club_members`(1).
+- Em queries: `.eq("unit_id", …)` / `unit_id:` → `unidade_id`.
+- `mi_settings` é por tenant: ajustar `.from("settings").select()` para filtrar/inserir com `tenant_id`.
+
+### 10.3 PONTE DE AUTH (o ponto não-mecânico — `profiles` 12 refs)
+O XV usava `public.profiles` (role master/gestor/parceiro + unit_id) e `requireUser()` de `@/lib/auth` devolvendo `{ profile }`. No LavSync NÃO há `profiles` — há `usuarios` + `is_master()` + unidade ativa (`@/lib/unidade-ativa`, `@/lib/unidade-multi`).
+Criar **shim** `src/midia-indoor/lib/auth.ts`:
+```ts
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getUnidadeAtiva } from "@/lib/unidade-ativa";
+export async function requireUser() {
+  const sb = await createClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) redirect("/login");
+  const unidade = await getUnidadeAtiva();          // unidade ativa do switcher
+  const { data: u } = await sb.from("usuarios").select("role").eq("id", user.id).maybeSingle();
+  // mapear: profile.unit_id = unidade.id ; profile.id = user.id ; role do LavSync
+  return { user, profile: { id: user.id, unit_id: unidade.id, role: u?.role ?? "gestor" } };
+}
+```
+- Onde o XV filtrava por `profile.unit_id`, passa a usar a **unidade ativa** (switcher do topbar). Multi-unidade já existe (`unidade-multi.ts`).
+- Páginas admin do XV (que tinham sidebar própria) → **embrulhar conteúdo em `<AppShell>`** (padrão LavSync: ver `src/app/financeiro/page.tsx`). Descartar a sidebar/topbar do XV.
+- **Portal do parceiro** (`/parceiro/*`): NÃO usa profiles nem AppShell; valida via `mi_partner_users` (criado na 0031). Callback OAuth garante a linha.
+
+### 10.4 Layout/shell
+- LavSync tem **um só** `src/app/layout.tsx` (fontes + ThemeProvider). Shell é por-página via `<AppShell>`.
+- Rotas públicas (`/m/[slug]`, `/player`, `/qr`, `/parceiro`) **não** usam AppShell.
+
+### 10.5 Proxy whitelist (`src/lib/supabase/proxy-helper.ts`, função `isPublic`)
+Adicionar: `pathname.startsWith("/m/")`, `"/player"`, `"/qr"`, `"/parceiro")`, `"/api/midia-indoor/player"`, `"/api/midia-indoor/qr"`, `"/api/midia-indoor/stocks"`. (Upload exige sessão do parceiro → validar no handler.)
+
+### 10.6 Navegação (`src/lib/navigation.ts`)
+Marketing já aponta `/publicidade`. Opção simples: a página `/publicidade` ganha um card/aba "Mídia Indoor" → `/publicidade/midia-indoor`. Opção nav: adicionar item filho. Adicionar permissão no RBAC (`src/lib/permissoes`).
+
+### 10.7 Env / integrações
+- `PEXELS_API_KEY` na Vercel LavSync (stocks do editor).
+- Trocar usos de `NEXT_PUBLIC_APP_URL`/`NEXT_PUBLIC_SITE_URL` por `https://sistema.lavsync.com.br`.
+- Google OAuth (portal parceiro): novo redirect `…/parceiro/auth/callback` no Supabase Auth + Google Cloud.
+
+> Próximo passo: §10.1 (alias + `src/midia-indoor/`), depois portar o **editor** como primeira fatia vertical (usa só `mi_editor_templates` + storage + shim de auth).
