@@ -7,6 +7,7 @@
 // Doc: docs/CLOCK-RELACIONAMENTO.md §8.
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getConexaoUnidade, enviarTexto, type Conexao } from "./meta-cloud";
 
 // Backoff de retry para falha transitória (min). Mesma curva do Castelo.
 export const BACKOFF_MIN = [1, 5, 30, 120, 1440];
@@ -93,26 +94,34 @@ export type ResultadoProcessamento = {
   motivo?: string;
 };
 
+type FilaRow = {
+  id: string;
+  unidade_id: string | null;
+  canal: string;
+  destinatario_telefone: string | null;
+  corpo_renderizado: string;
+  tentativas: number;
+};
+
 /**
- * Processa a fila respeitando prioridade (operacional antes de campanha).
- * Sprint 1: sem provider configurado → dry-run (não envia, deixa pendente).
- * Sprint 2: liga o envio real no ponto marcado [[ENVIO]].
+ * Processa a fila respeitando prioridade (operacional antes de campanha) e
+ * enviando pela conexão Meta Cloud API DA UNIDADE (wa_conexoes). Linhas de
+ * unidade sem conexão 'conectado' ficam pendentes (dry-run por unidade).
+ * Retry transitório segue o BACKOFF; 4xx vira 'morto'. Best-effort: nunca lança.
  */
 export async function processarFila(opts?: { limite?: number }): Promise<ResultadoProcessamento> {
   const res: ResultadoProcessamento = {
-    considerados: 0, enviados: 0, reagendados: 0, mortos: 0, suprimidos: 0, dryRun: true,
+    considerados: 0, enviados: 0, reagendados: 0, mortos: 0, suprimidos: 0, dryRun: false,
   };
-  const providerPronto = Boolean(process.env.WHATSAPP_CLOUD_TOKEN); // setado no Sprint 2
-  res.dryRun = !providerPronto;
-
   const limite = opts?.limite ?? 100;
   const sb = createAdminClient();
   const agora = new Date().toISOString();
 
   const { data: rows, error } = await sb
     .from("msg_fila")
-    .select("id, tipo, escopo, canal, destinatario_telefone, corpo_renderizado, tentativas")
+    .select("id, unidade_id, canal, destinatario_telefone, corpo_renderizado, tentativas")
     .eq("status", "pendente")
+    .eq("canal", "whatsapp")
     .lte("proximo_retry_em", agora)
     .order("prioridade", { ascending: true })       // 0 (operacional) primeiro
     .order("proximo_retry_em", { ascending: true })
@@ -124,17 +133,56 @@ export async function processarFila(opts?: { limite?: number }): Promise<Resulta
   }
   res.considerados = rows.length;
 
-  if (!providerPronto) {
-    // Dry-run: fundação no ar, mas sem WhatsApp ligado. Não toca nas linhas —
-    // ficam 'pendente' e serão enviadas quando WHATSAPP_CLOUD_TOKEN existir.
-    res.motivo = "provider WhatsApp não configurado (dry-run)";
-    return res;
+  // Cache de conexões por unidade (1 lookup por unidade).
+  const conexoes = new Map<string, Conexao | null>();
+  async function conexaoDe(unidadeId: string | null): Promise<Conexao | null> {
+    if (!unidadeId) return null;
+    if (!conexoes.has(unidadeId)) conexoes.set(unidadeId, await getConexaoUnidade(unidadeId));
+    return conexoes.get(unidadeId) ?? null;
   }
 
-  // ─── Sprint 2: envio real ───────────────────────────────────────
-  // for (const r of rows) {
-  //   const r = await enviarWhatsApp(r.destinatario_telefone, r.corpo_renderizado);  // [[ENVIO]]
-  //   ...marcar enviado / reagendar com BACKOFF_MIN / marcar morto...
-  // }
+  for (const r of rows as FilaRow[]) {
+    const conexao = await conexaoDe(r.unidade_id);
+    // Unidade sem provider ligado → deixa pendente (dry-run por unidade).
+    if (!conexao || conexao.status !== "conectado") { res.dryRun = true; continue; }
+    if (!r.destinatario_telefone) {
+      await sb.from("msg_fila").update({ status: "morto", erro: "sem telefone" }).eq("id", r.id);
+      res.mortos++;
+      continue;
+    }
+
+    // marca 'enviando' pra evitar corrida
+    await sb.from("msg_fila").update({ status: "enviando" }).eq("id", r.id);
+    const env = await enviarTexto(conexao, r.destinatario_telefone, r.corpo_renderizado);
+
+    if (env.ok) {
+      await sb.from("msg_fila").update({
+        status: "enviado", provider: "meta_cloud", provider_message_id: env.messageId ?? null,
+        last_status_code: env.statusCode, enviado_em: new Date().toISOString(), erro: null,
+      }).eq("id", r.id);
+      res.enviados++;
+    } else if (env.permanente) {
+      await sb.from("msg_fila").update({
+        status: "morto", last_status_code: env.statusCode, erro: env.erro ?? "erro permanente",
+      }).eq("id", r.id);
+      res.mortos++;
+    } else {
+      const tentativas = r.tentativas + 1;
+      if (tentativas > BACKOFF_MIN.length) {
+        await sb.from("msg_fila").update({
+          status: "morto", tentativas, last_status_code: env.statusCode, erro: env.erro ?? "esgotou retries",
+        }).eq("id", r.id);
+        res.mortos++;
+      } else {
+        const espera = BACKOFF_MIN[tentativas - 1] ?? BACKOFF_MIN[BACKOFF_MIN.length - 1];
+        const proximo = new Date(Date.now() + espera * 60_000).toISOString();
+        await sb.from("msg_fila").update({
+          status: "pendente", tentativas, proximo_retry_em: proximo,
+          last_status_code: env.statusCode, erro: env.erro ?? null,
+        }).eq("id", r.id);
+        res.reagendados++;
+      }
+    }
+  }
   return res;
 }
