@@ -37,6 +37,7 @@ export const NAVIGATION: NavItem[] = [
   // SISTEMA
   { label: "Automações", href: "/integracoes", group: "sistema" },
   { label: "Stone Open Banking", href: "/integracoes/stone", group: "sistema", badge: "NOVO", accent: true },
+  { label: "WhatsApp Cloud API", href: "/integracoes/whatsapp", group: "sistema", badge: "NOVO", accent: true },
   { label: "Configurações", href: "/configuracoes", group: "sistema" },
 ];
 
