@@ -51,6 +51,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/midia-indoor/qr-codes") ||
     pathname.startsWith("/api/midia-indoor/stocks") ||
     // ─── Páginas legais públicas (LGPD) ──────────────────────────────
+    pathname.startsWith("/regulamento-clube") ||
     pathname.startsWith("/politica-de-privacidade") ||
     pathname.startsWith("/termos-de-uso") ||
     pathname.startsWith("/politica-de-cookies") ||

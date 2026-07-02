@@ -32,6 +32,7 @@ export const NAVIGATION: NavItem[] = [
   { label: "Performance", href: "/performance", group: "inteligencia" },
   { label: "Comparativo", href: "/comparativo", group: "inteligencia" },
   { label: "Importações", href: "/cadastros/importacoes", group: "inteligencia" },
+  { label: "Fidelidade · Relatório", href: "/publicidade/fidelidade", group: "inteligencia" },
   { label: "IA & Insights", href: "/clock", group: "inteligencia", accent: true },
 
   // SISTEMA

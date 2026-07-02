@@ -68,6 +68,7 @@ export async function enfileirar(itens: ItemFila[]): Promise<{ enfileirados: num
     corpo_renderizado: it.corpo_renderizado,
     agendado_para: it.agendado_para ?? agora,
     proximo_retry_em: it.agendado_para ?? agora,
+    dedupe_key: it.dedupe_key ?? null,
     status: "pendente",
   }));
 
