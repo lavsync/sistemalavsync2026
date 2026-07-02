@@ -66,7 +66,9 @@ LavSync (sistema.lavsync.com.br)
 | `xo-varal-buritis` | `10000000-0000-0000-0000-000000000001` | Buritis |
 | (Castelo, se houver) | `10000000-0000-0000-0000-000000000002` | Castelo |
 | (Cabral) | `10000000-0000-0000-0000-000000000003` | Cabral |
-| (Anchieta) | `10000000-0000-0000-0000-000000000004` | Anchieta |
+
+<!-- Anchieta (…0004) removida do sistema em 2026-07-02 — nunca operou; backup em ~/Desktop/lavsync-handoff/backup_anchieta_2026-07-02.json -->
+
 
 > ⚠️ As tabelas `mi_*` referenciam `public.unidades(id)` do LavSync via uma coluna `unidade_id`, **não** mais um `units` próprio. A tabela `mi_units` guarda só os atributos extras do Mídia Indoor (slug público, player_token, public_url) **ligados 1:1 a uma `unidade_id`**.
 
