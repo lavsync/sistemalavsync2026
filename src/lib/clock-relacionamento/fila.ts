@@ -73,14 +73,24 @@ export async function enfileirar(itens: ItemFila[]): Promise<{ enfileirados: num
   }));
 
   let enfileirados = 0;
-  // insert em batches de 200, ignorando colisão de dedupe_key
-  for (let i = 0; i < rows.length; i += 200) {
-    const batch = rows.slice(i, i + 200);
+  // Com dedupe_key: upsert ignorando colisão. Sem: insert simples
+  // (NULL nunca conflita, e upsert exige o índice único casando).
+  const comDedupe = rows.filter((r) => r.dedupe_key !== null);
+  const semDedupe = rows.filter((r) => r.dedupe_key === null);
+  for (let i = 0; i < comDedupe.length; i += 200) {
+    const batch = comDedupe.slice(i, i + 200);
     const { data, error } = await sb
       .from("msg_fila")
       .upsert(batch, { onConflict: "tenant_id,dedupe_key", ignoreDuplicates: true })
       .select("id");
-    if (!error && data) enfileirados += data.length;
+    if (error) console.error("[msg_fila] enfileirar upsert:", error.message);
+    else if (data) enfileirados += data.length;
+  }
+  for (let i = 0; i < semDedupe.length; i += 200) {
+    const batch = semDedupe.slice(i, i + 200);
+    const { data, error } = await sb.from("msg_fila").insert(batch).select("id");
+    if (error) console.error("[msg_fila] enfileirar insert:", error.message);
+    else if (data) enfileirados += data.length;
   }
   return { enfileirados };
 }
