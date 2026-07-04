@@ -9,8 +9,10 @@ import {
   Award, Crown, Gem, Medal, Search, Filter, Phone,
   Plus, Edit2, Trash2, Check, X, Loader2, Save,
   PackageCheck, PackageOpen, AlertTriangle, Sparkles, Tag,
-  CheckCircle2, XCircle, Building2, Wallet, Send,
+  CheckCircle2, XCircle, Building2, Wallet, Send, MessageCircle,
 } from "lucide-react";
+import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
+import { renderMensagem, linkWhatsApp, LINK_PORTAL_CLIENTE } from "@/lib/clube/render-mensagem";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +38,7 @@ const NIVEL_ICON_MAP: Record<NivelXoClub, React.ElementType> = {
 
 export function XoClubView({
   resumo, saldos, produtos, resgates, config, unidades,
+  templatePortal, enviosPortal, mesAtual,
 }: {
   resumo: ResumoXoClub;
   saldos: SaldoCliente[];
@@ -43,6 +46,9 @@ export function XoClubView({
   resgates: Resgate[];
   config: XoClubConfig | null;
   unidades: Unidade[];
+  templatePortal: string | null;
+  enviosPortal: string[];
+  mesAtual: string;
 }) {
   const [tab, setTab] = React.useState<"dashboard" | "saldos" | "store" | "resgates" | "config">("dashboard");
   void unidades;
@@ -82,7 +88,7 @@ export function XoClubView({
           <Dashboard resumo={resumo} />
         </Tabs.Content>
         <Tabs.Content value="saldos" className="outline-none mt-5">
-          <SaldosView saldos={saldos} />
+          <SaldosView saldos={saldos} templatePortal={templatePortal} enviosPortal={enviosPortal} mesAtual={mesAtual} />
         </Tabs.Content>
         <Tabs.Content value="store" className="outline-none mt-5">
           <StoreView produtos={produtos} saldos={saldos} />
@@ -214,10 +220,56 @@ function KPI({ label, valor, icon: Icon, tone }: { label: string; valor: number;
 // ────────────────────────────────────────────────────────────
 // SALDOS
 // ────────────────────────────────────────────────────────────
-function SaldosView({ saldos }: { saldos: SaldoCliente[] }) {
+function SaldosView({
+  saldos, templatePortal, enviosPortal, mesAtual,
+}: {
+  saldos: SaldoCliente[];
+  templatePortal: string | null;
+  enviosPortal: string[];
+  mesAtual: string;
+}) {
   const [busca, setBusca] = React.useState("");
   const [filtroNivel, setFiltroNivel] = React.useState<NivelXoClub | "todos">("todos");
   const [ajustando, setAjustando] = React.useState<SaldoCliente | null>(null);
+  const [enviados, setEnviados] = React.useState<Set<string>>(new Set(enviosPortal));
+
+  const mensagemDe = React.useCallback((s: SaldoCliente): string | null => {
+    if (!templatePortal) return null;
+    return renderMensagem(templatePortal, {
+      primeiro_nome: s.cliente_nome.split(" ")[0],
+      nome: s.cliente_nome,
+      lavcoins: s.saldo_atual,
+      pontos: s.saldo_atual,
+      nivel: labelDoNivelXC(s.nivel).toUpperCase(),
+      link_portal: LINK_PORTAL_CLIENTE,
+    });
+  }, [templatePortal]);
+
+  async function alternarEnviado(s: SaldoCliente, valor: boolean) {
+    setEnviados((prev) => {
+      const n = new Set(prev);
+      if (valor) n.add(s.cliente_id); else n.delete(s.cliente_id);
+      return n;
+    });
+    const r = await marcarEnvioManual({
+      clienteId: s.cliente_id, unidadeId: s.unidade_id,
+      mesRef: mesAtual, tipo: "xoclub", enviado: valor,
+    });
+    if (!r.ok) {
+      setEnviados((prev) => {
+        const n = new Set(prev);
+        if (valor) n.delete(s.cliente_id); else n.add(s.cliente_id);
+        return n;
+      });
+    }
+  }
+
+  function abrirWhatsApp(s: SaldoCliente) {
+    const msg = mensagemDe(s);
+    if (!s.cliente_telefone || !msg) return;
+    window.open(linkWhatsApp(s.cliente_telefone, msg), "_blank", "noopener");
+    if (!enviados.has(s.cliente_id)) void alternarEnviado(s, true);
+  }
 
   const filtrados = saldos.filter((s) => {
     if (filtroNivel !== "todos" && s.nivel !== filtroNivel) return false;
@@ -302,10 +354,37 @@ function SaldosView({ saldos }: { saldos: SaldoCliente[] }) {
                       )}
                     </td>
                     <td className="py-2 px-3 text-center">
-                      <button onClick={() => setAjustando(s)}
-                        className="text-[10px] font-semibold text-brand-cyan hover:underline inline-flex items-center gap-1">
-                        <Edit2 className="w-3 h-3" /> Ajustar
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        {s.cliente_telefone && mensagemDe(s) && (
+                          <>
+                            <button
+                              onClick={() => abrirWhatsApp(s)}
+                              title={`Abrir WhatsApp Web com pontos + link do portal\n\n${mensagemDe(s)}`}
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-smooth",
+                                enviados.has(s.cliente_id)
+                                  ? "bg-secondary text-muted-foreground hover:text-foreground"
+                                  : "bg-[#25D366]/15 text-[#1faa52] hover:bg-[#25D366]/25",
+                              )}>
+                              <MessageCircle className="w-3.5 h-3.5" /> Conversar
+                            </button>
+                            <label
+                              title="Cliente já recebeu a mensagem de pontos deste mês"
+                              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
+                              <input type="checkbox" checked={enviados.has(s.cliente_id)}
+                                onChange={(e) => alternarEnviado(s, e.target.checked)}
+                                className="accent-[#25D366]" />
+                              {enviados.has(s.cliente_id)
+                                ? <span className="text-success font-semibold">enviada</span>
+                                : "enviada?"}
+                            </label>
+                          </>
+                        )}
+                        <button onClick={() => setAjustando(s)}
+                          className="text-[10px] font-semibold text-brand-cyan hover:underline inline-flex items-center gap-1">
+                          <Edit2 className="w-3 h-3" /> Ajustar
+                        </button>
+                      </div>
                     </td>
                   </motion.tr>
                 );

@@ -5,13 +5,15 @@ import { motion } from "framer-motion";
 import {
   Trophy, Crown, Gem, Award, Medal, Sparkles, RefreshCw, Send,
   Loader2, ChevronRight, Users, TrendingDown, Phone, Filter,
-  Building2, Calendar, Layers,
+  Building2, Calendar, Layers, MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { NIVEIS, type NivelClube, labelDoNivel, corDoNivel } from "@/lib/clube/niveis";
-import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade } from "@/lib/clube/queries";
+import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, SituacaoCliente } from "@/lib/clube/queries";
 import { classificarMes, gerarDisparosClube } from "@/lib/clube/actions";
+import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
+import { renderMensagem, linkWhatsApp, LINK_PORTAL_CLIENTE } from "@/lib/clube/render-mensagem";
 import { UnidadeMultiSwitcher } from "@/components/ui/unidade-multi-switcher";
 import type { SelecaoUnidades } from "@/lib/unidade-multi";
 
@@ -46,6 +48,7 @@ export function ClubeView({
   selecaoUnidadeIds,
   situacaoUnidades,
   selecaoUnidades,
+  enviosQualificacao,
 }: {
   resumo: ResumoClube;
   classificacoes: Classificacao[];
@@ -56,6 +59,7 @@ export function ClubeView({
   selecaoUnidadeIds: string[];
   situacaoUnidades: SituacaoUnidade[];
   selecaoUnidades: SelecaoUnidades;
+  enviosQualificacao: string[];
 }) {
   const [classificando, setClassificando] = React.useState(false);
   const [disparandoTpl, setDisparandoTpl] = React.useState<string | null>(null);
@@ -266,7 +270,13 @@ export function ClubeView({
       </div>
 
       {/* Situação ao vivo de TODOS os clientes — agrupada por unidade */}
-      <SituacaoPorUnidade situacao={situacaoUnidades} mesRefStr={mesRefStr} />
+      <SituacaoPorUnidade
+        situacao={situacaoUnidades}
+        mesRefStr={mesRefStr}
+        mesAplicacao={mesAplicacao}
+        templates={templates}
+        enviosIniciais={enviosQualificacao}
+      />
 
       {/* Filtro nível */}
       <div className="flex flex-wrap items-center gap-2">
@@ -382,10 +392,74 @@ function KpiNivel({ icon: Icon, label, valor, tone }: { icon: React.ElementType;
 // ────────────────────────────────────────────────────────────
 // SITUAÇÃO AO VIVO POR UNIDADE — todos os clientes do mês_ref
 // ────────────────────────────────────────────────────────────
-function SituacaoPorUnidade({ situacao, mesRefStr }: { situacao: SituacaoUnidade[]; mesRefStr: string }) {
+function SituacaoPorUnidade({
+  situacao, mesRefStr, mesAplicacao, templates, enviosIniciais,
+}: {
+  situacao: SituacaoUnidade[];
+  mesRefStr: string;
+  mesAplicacao: string;
+  templates: TemplateMensagem[];
+  enviosIniciais: string[];
+}) {
   const [unidadeAberta, setUnidadeAberta] = React.useState<string | null>(situacao[0]?.unidade_id ?? null);
   const [filtroNivel, setFiltroNivel] = React.useState<NivelClube | "todos">("todos");
   const [busca, setBusca] = React.useState("");
+  const [enviados, setEnviados] = React.useState<Set<string>>(new Set(enviosIniciais));
+  const [soPendentes, setSoPendentes] = React.useState(false);
+
+  // Mensagem de qualificação do cliente: classificado → template do nível;
+  // abaixo de Bronze → template 'abaixo_bronze'. Ambos editáveis no banco.
+  const mensagemDe = React.useCallback((c: SituacaoCliente): string | null => {
+    const tpl = c.nivel !== "nao_classificado"
+      ? templates.find((t) => t.tipo === "parabens_nivel" && t.nivel_alvo === c.nivel && t.ativo !== false)
+      : templates.find((t) => t.tipo === "abaixo_bronze" && t.ativo !== false);
+    if (!tpl) return null;
+    const proxRegra = c.proximo_nivel ? NIVEIS.find((n) => n.key === c.proximo_nivel) : null;
+    return renderMensagem(tpl.mensagem, {
+      primeiro_nome: c.nome.split(" ")[0],
+      nome: c.nome,
+      cpf: c.cpf,
+      nivel: c.nivel === "nao_classificado" ? "—" : labelDoNivel(c.nivel).toUpperCase(),
+      ciclos: c.ciclos,
+      ciclos_palavra: c.ciclos === 1 ? "ciclo" : "ciclos",
+      desconto: c.desconto_pct,
+      pontos: c.pontos,
+      faltam: c.ciclos_faltam,
+      proximo_nivel: proxRegra ? proxRegra.label.toUpperCase() : "TOPO",
+      desconto_proximo: proxRegra?.descontoPct ?? 0,
+      faltam_proximo: c.ciclos_faltam,
+      mes_ref_nome: nomeDoMes(mesRefStr),
+      mes_aplic_nome: nomeDoMes(mesAplicacao),
+      link_portal: LINK_PORTAL_CLIENTE,
+    });
+  }, [templates, mesRefStr, mesAplicacao]);
+
+  async function alternarEnviado(c: SituacaoCliente, valor: boolean) {
+    setEnviados((s) => {
+      const n = new Set(s);
+      if (valor) n.add(c.cliente_id); else n.delete(c.cliente_id);
+      return n;
+    });
+    const r = await marcarEnvioManual({
+      clienteId: c.cliente_id, unidadeId: c.unidade_id,
+      mesRef: mesRefStr, tipo: "qualificacao", enviado: valor,
+    });
+    if (!r.ok) { // rollback otimista
+      setEnviados((s) => {
+        const n = new Set(s);
+        if (valor) n.delete(c.cliente_id); else n.add(c.cliente_id);
+        return n;
+      });
+    }
+  }
+
+  function abrirWhatsApp(c: SituacaoCliente) {
+    const msg = mensagemDe(c);
+    if (!c.telefone || !msg) return;
+    window.open(linkWhatsApp(c.telefone, msg), "_blank", "noopener");
+    // marca automaticamente como enviado (dá pra desmarcar na caixa)
+    if (!enviados.has(c.cliente_id)) void alternarEnviado(c, true);
+  }
 
   if (situacao.length === 0) {
     return (
@@ -459,6 +533,7 @@ function SituacaoPorUnidade({ situacao, mesRefStr }: { situacao: SituacaoUnidade
         const buscaNorm = busca.trim().toLowerCase();
         const filtrados = u.clientes.filter((c) => {
           if (filtroNivel !== "todos" && c.nivel !== filtroNivel) return false;
+          if (soPendentes && enviados.has(c.cliente_id)) return false;
           if (buscaNorm) {
             return c.nome.toLowerCase().includes(buscaNorm)
               || c.cpf.replace(/\D/g, "").includes(buscaNorm.replace(/\D/g, ""))
@@ -466,6 +541,7 @@ function SituacaoPorUnidade({ situacao, mesRefStr }: { situacao: SituacaoUnidade
           }
           return true;
         });
+        const enviadosNaUnidade = u.clientes.filter((c) => enviados.has(c.cliente_id)).length;
 
         return (
           <div key={u.unidade_id}>
@@ -478,6 +554,16 @@ function SituacaoPorUnidade({ situacao, mesRefStr }: { situacao: SituacaoUnidade
               <span className="text-[11px] text-muted-foreground">
                 {u.total_clientes} clientes · <span className="font-mono font-bold">{u.total_ciclos}</span> ciclos · <span className="font-mono">{fmtBRL(u.faturamento_total)}</span>
               </span>
+              <span className={cn("text-[11px] font-semibold inline-flex items-center gap-1",
+                enviadosNaUnidade === u.total_clientes && u.total_clientes > 0 ? "text-success" : "text-muted-foreground")}>
+                <MessageCircle className="w-3 h-3" />
+                {enviadosNaUnidade}/{u.total_clientes} mensagens do mês enviadas
+              </span>
+              <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer select-none">
+                <input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)}
+                  className="accent-brand-cyan" />
+                Só pendentes
+              </label>
               <div className="ml-auto flex items-center gap-1 flex-wrap">
                 {NIVEIS.filter((n) => u.por_nivel[n.key] > 0).map((n) => {
                   const Icon = NIVEL_ICON[n.key];
@@ -506,7 +592,7 @@ function SituacaoPorUnidade({ situacao, mesRefStr }: { situacao: SituacaoUnidade
                     <th className="text-right py-2 px-3 font-semibold">Faturamento</th>
                     <th className="text-center py-2 px-3 font-semibold">Desconto</th>
                     <th className="text-left py-2 px-3 font-semibold">Próximo nível</th>
-                    <th className="text-left py-2 px-3 font-semibold">WhatsApp</th>
+                    <th className="text-left py-2 px-3 font-semibold">Mensagem do mês</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -558,12 +644,40 @@ function SituacaoPorUnidade({ situacao, mesRefStr }: { situacao: SituacaoUnidade
                             </span>
                           )}
                         </td>
-                        <td className="py-2 px-3 text-[10px] text-muted-foreground">
-                          {c.telefone ? (
-                            <span className="inline-flex items-center gap-1 font-mono">
-                              <Phone className="w-2.5 h-2.5" /> {c.telefone}
+                        <td className="py-2 px-3">
+                          {c.telefone && mensagemDe(c) ? (
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                onClick={() => abrirWhatsApp(c)}
+                                title={`Abrir WhatsApp Web com a mensagem pronta\n\n${mensagemDe(c)}`}
+                                className={cn(
+                                  "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-smooth",
+                                  enviados.has(c.cliente_id)
+                                    ? "bg-secondary text-muted-foreground hover:text-foreground"
+                                    : "bg-[#25D366]/15 text-[#1faa52] hover:bg-[#25D366]/25",
+                                )}>
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                Conversar
+                              </button>
+                              <label
+                                title="Cliente já recebeu a mensagem de qualificação deste mês"
+                                className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={enviados.has(c.cliente_id)}
+                                  onChange={(e) => alternarEnviado(c, e.target.checked)}
+                                  className="accent-[#25D366]"
+                                />
+                                {enviados.has(c.cliente_id)
+                                  ? <span className="text-success font-semibold">enviada</span>
+                                  : "enviada?"}
+                              </label>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] opacity-40 inline-flex items-center gap-1">
+                              <Phone className="w-2.5 h-2.5" /> sem telefone
                             </span>
-                          ) : <span className="opacity-40">—</span>}
+                          )}
                         </td>
                       </motion.tr>
                     );

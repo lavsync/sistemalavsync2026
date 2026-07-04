@@ -151,6 +151,7 @@ export type SituacaoCliente = {
   desconto_pct: number;
   proximo_nivel: import("./niveis").NivelClube | null;
   ciclos_faltam: number;
+  pontos: number;
 };
 
 export type SituacaoUnidade = {
@@ -178,15 +179,21 @@ export async function getSituacaoClientes(
   // cliente listado na sua unidade PRINCIPAL. Cards e lista sempre batem.
   const { porCliente } = await agregarCompetencia(sb, mesRefIso);
 
-  // Dados dos clientes (nome/telefone/cpf) — em batches
+  // Dados dos clientes (nome/telefone/cpf) + pontos — em batches
   const clienteIds = [...porCliente.keys()];
   type Cli = { id: string; nome: string; cpf: string; telefone: string | null };
   const clientesMap = new Map<string, Cli>();
+  const pontosMap = new Map<string, number>();
   for (let i = 0; i < clienteIds.length; i += 200) {
-    const { data } = await sb.from("clientes")
-      .select("id, nome, cpf, telefone")
-      .in("id", clienteIds.slice(i, i + 200));
+    const slice = clienteIds.slice(i, i + 200);
+    const [{ data }, { data: pts }] = await Promise.all([
+      sb.from("clientes").select("id, nome, cpf, telefone").in("id", slice),
+      sb.from("clube_pontos").select("cliente_id, saldo_pontos").in("cliente_id", slice),
+    ]);
     for (const c of (data ?? []) as Cli[]) clientesMap.set(c.id, c);
+    for (const p of (pts ?? []) as Array<{ cliente_id: string; saldo_pontos: number }>) {
+      pontosMap.set(p.cliente_id, p.saldo_pontos);
+    }
   }
 
   const { data: undData } = await sb.from("unidades")
@@ -231,6 +238,7 @@ export async function getSituacaoClientes(
       desconto_pct: nivelAtual.descontoPct,
       proximo_nivel: prox.proximo?.key ?? null,
       ciclos_faltam: prox.faltam,
+      pontos: pontosMap.get(b.cliente_id) ?? 0,
     });
     unid.total_clientes += 1;
     unid.total_ciclos += b.ciclos;

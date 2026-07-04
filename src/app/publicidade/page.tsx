@@ -7,6 +7,7 @@ import {
   getSituacaoClientes,
 } from "@/lib/clube/queries";
 import { parseSelecaoUnidades } from "@/lib/unidade-multi";
+import { listarEnviosManuais } from "@/lib/clube/envios-manuais";
 import {
   getResumoXoClub, getSaldosClientes, getProdutos, getResgates, getConfigXoClub,
 } from "@/lib/xoclub/queries";
@@ -35,9 +36,11 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
   const dRef = new Date(dAplic.getFullYear(), dAplic.getMonth() - 1, 1);
   const mesRef = `${dRef.getFullYear()}-${String(dRef.getMonth() + 1).padStart(2, "0")}-01`;
 
+  const mesAtual = mesAtualStr();
   const [
     classificacoes, resumo, mesesDisponiveis, templates, situacaoUnidades,
     xoclubResumo, xoclubSaldos, xoclubProdutos, xoclubResgates, xoclubConfig,
+    enviosQualificacao, enviosXoclub,
   ] = await Promise.all([
     listarClassificacoes(selecao.ids, mesAplic),
     resumoClube(selecao.ids, mesAplic),
@@ -49,7 +52,10 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
     getProdutos(),
     getResgates({ limit: 200 }),
     getConfigXoClub(),
+    listarEnviosManuais(mesRef, "qualificacao"),
+    listarEnviosManuais(mesAtual, "xoclub"),
   ]);
+  const templatePortal = templates.find((t) => t.tipo === "xoclub_portal")?.mensagem ?? null;
 
   return (
     <AppShell>
@@ -64,11 +70,15 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
         clubeTemplates={templates}
         clubeSituacao={situacaoUnidades}
         clubeSelecaoUnidades={selecao}
+        clubeEnviosQualificacao={enviosQualificacao}
         xoclubResumo={xoclubResumo}
         xoclubSaldos={xoclubSaldos}
         xoclubProdutos={xoclubProdutos}
         xoclubResgates={xoclubResgates}
         xoclubConfig={xoclubConfig}
+        xoclubTemplatePortal={templatePortal}
+        xoclubEnviosPortal={enviosXoclub}
+        xoclubMesAtual={mesAtual}
       />
     </AppShell>
   );

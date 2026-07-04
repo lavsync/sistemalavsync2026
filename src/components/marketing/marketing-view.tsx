@@ -58,8 +58,9 @@ const fmtBR = (iso: string) => {
 export function MarketingView({
   campanhas, unidades, unidadeAtivaId,
   clubeResumo, clubeClassificacoes, clubeMesAplicacao, clubeMesesDisponiveis, clubeTemplates,
-  clubeSituacao, clubeSelecaoUnidades,
+  clubeSituacao, clubeSelecaoUnidades, clubeEnviosQualificacao,
   xoclubResumo, xoclubSaldos, xoclubProdutos, xoclubResgates, xoclubConfig,
+  xoclubTemplatePortal, xoclubEnviosPortal, xoclubMesAtual,
 }: {
   campanhas: Campanha[];
   unidades: Unidade[];
@@ -71,11 +72,15 @@ export function MarketingView({
   clubeTemplates: TemplateMensagem[];
   clubeSituacao: SituacaoUnidade[];
   clubeSelecaoUnidades: SelecaoUnidades;
+  clubeEnviosQualificacao: string[];
   xoclubResumo: ResumoXoClub;
   xoclubSaldos: SaldoCliente[];
   xoclubProdutos: Produto[];
   xoclubResgates: Resgate[];
   xoclubConfig: XoClubConfig | null;
+  xoclubTemplatePortal: string | null;
+  xoclubEnviosPortal: string[];
+  xoclubMesAtual: string;
 }) {
   const [tab, setTab] = React.useState<"campanhas" | "clube" | "xoclub">("campanhas");
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>(unidadeAtivaId);
@@ -212,6 +217,7 @@ export function MarketingView({
             selecaoUnidadeIds={clubeSelecaoUnidades.ids}
             situacaoUnidades={clubeSituacao}
             selecaoUnidades={clubeSelecaoUnidades}
+            enviosQualificacao={clubeEnviosQualificacao}
           />
         </Tabs.Content>
 
@@ -223,6 +229,9 @@ export function MarketingView({
             resgates={xoclubResgates}
             config={xoclubConfig}
             unidades={unidades}
+            templatePortal={xoclubTemplatePortal}
+            enviosPortal={xoclubEnviosPortal}
+            mesAtual={xoclubMesAtual}
           />
         </Tabs.Content>
       </Tabs.Root>
