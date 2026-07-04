@@ -20,7 +20,7 @@ import {
 } from "@/lib/marketing/actions";
 import { ClubeView } from "./clube-view";
 import { XoClubView } from "./xoclub-view";
-import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade } from "@/lib/clube/queries";
+import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, QuaseCliente } from "@/lib/clube/queries";
 import type { ResumoXoClub, SaldoCliente, Produto, Resgate, XoClubConfig } from "@/lib/xoclub/queries";
 import type { SelecaoUnidades } from "@/lib/unidade-multi";
 
@@ -58,7 +58,7 @@ const fmtBR = (iso: string) => {
 export function MarketingView({
   campanhas, unidades, unidadeAtivaId,
   clubeResumo, clubeClassificacoes, clubeMesAplicacao, clubeMesesDisponiveis, clubeTemplates,
-  clubeSituacao, clubeSelecaoUnidades, clubeEnviosQualificacao,
+  clubeSituacao, clubeSelecaoUnidades, clubeEnviosQualificacao, clubeAbaixoBronze,
   xoclubResumo, xoclubSaldos, xoclubProdutos, xoclubResgates, xoclubConfig,
   xoclubTemplatePortal, xoclubEnviosPortal, xoclubMesAtual,
 }: {
@@ -73,6 +73,7 @@ export function MarketingView({
   clubeSituacao: SituacaoUnidade[];
   clubeSelecaoUnidades: SelecaoUnidades;
   clubeEnviosQualificacao: string[];
+  clubeAbaixoBronze: QuaseCliente[];
   xoclubResumo: ResumoXoClub;
   xoclubSaldos: SaldoCliente[];
   xoclubProdutos: Produto[];
@@ -218,6 +219,7 @@ export function MarketingView({
             situacaoUnidades={clubeSituacao}
             selecaoUnidades={clubeSelecaoUnidades}
             enviosQualificacao={clubeEnviosQualificacao}
+            abaixoBronze={clubeAbaixoBronze}
           />
         </Tabs.Content>
 

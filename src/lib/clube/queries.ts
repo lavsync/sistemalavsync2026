@@ -280,6 +280,67 @@ export async function getSituacaoClientes(
   return Array.from(porUnidade.values()).sort((a, b) => b.total_ciclos - a.total_ciclos);
 }
 
+// ─── Quase lá: usaram no mês de referência mas NÃO atingiram nível ─────────
+// Relação separada de trabalho: mensagem de incentivo ("faltaram X ciclos,
+// este mês a corrida recomeçou") pra quem ficou abaixo do Bronze.
+export type QuaseCliente = {
+  cliente_id: string;
+  nome: string;
+  cpf: string;
+  telefone: string | null;
+  unidade_id: string;
+  unidade_nome: string;
+  ciclos: number;           // ciclos feitos no mês de referência
+  ciclos_lavagem: number;
+  ciclos_secagem: number;
+  faturamento: number;
+  faltaram: number;         // quantos faltaram pro Bronze
+};
+
+export async function getAbaixoBronze(
+  unidadeIds: string[],
+  mesRef: string,           // YYYY-MM-01 — mês de referência (encerrado)
+): Promise<QuaseCliente[]> {
+  if (unidadeIds.length === 0) return [];
+  const sb = await createClient();
+  const { porCliente } = await agregarCompetencia(sb, mesRef);
+
+  const abaixo = [...porCliente.values()].filter(
+    (c) => classificar(c.ciclos).key === "nao_classificado" && unidadeIds.includes(c.unidade_principal),
+  );
+  const ids = abaixo.map((c) => c.cliente_id);
+
+  type Cli = { id: string; nome: string; cpf: string; telefone: string | null };
+  const clientesMap = new Map<string, Cli>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await sb.from("clientes")
+      .select("id, nome, cpf, telefone")
+      .in("id", ids.slice(i, i + 200));
+    for (const c of (data ?? []) as Cli[]) clientesMap.set(c.id, c);
+  }
+  const { data: undData } = await sb.from("unidades").select("id, nome").in("id", unidadeIds);
+  const undMap = new Map(((undData ?? []) as Array<{ id: string; nome: string }>).map((u) => [u.id, u.nome]));
+
+  return abaixo
+    .map((c) => {
+      const cli = clientesMap.get(c.cliente_id);
+      return {
+        cliente_id: c.cliente_id,
+        nome: cli?.nome ?? "—",
+        cpf: cli?.cpf ?? "",
+        telefone: cli?.telefone ?? null,
+        unidade_id: c.unidade_principal,
+        unidade_nome: undMap.get(c.unidade_principal) ?? "—",
+        ciclos: c.ciclos,
+        ciclos_lavagem: c.ciclos_lavagem,
+        ciclos_secagem: c.ciclos_secagem,
+        faturamento: c.faturamento,
+        faltaram: proximoNivel(c.ciclos).faltam,
+      };
+    })
+    .sort((a, b) => b.ciclos - a.ciclos);
+}
+
 export type TemplateMensagem = {
   id: string;
   tipo: string;

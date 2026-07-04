@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { NIVEIS, type NivelClube, labelDoNivel, corDoNivel, proximoNivel } from "@/lib/clube/niveis";
-import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, SituacaoCliente } from "@/lib/clube/queries";
+import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, SituacaoCliente, QuaseCliente } from "@/lib/clube/queries";
 import { classificarMes, gerarDisparosClube } from "@/lib/clube/actions";
 import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
 import { renderMensagem, linkWhatsApp, LINK_PORTAL_CLIENTE } from "@/lib/clube/render-mensagem";
@@ -49,6 +49,7 @@ export function ClubeView({
   situacaoUnidades,
   selecaoUnidades,
   enviosQualificacao,
+  abaixoBronze,
 }: {
   resumo: ResumoClube;
   classificacoes: Classificacao[];
@@ -60,17 +61,41 @@ export function ClubeView({
   situacaoUnidades: SituacaoUnidade[];
   selecaoUnidades: SelecaoUnidades;
   enviosQualificacao: string[];
+  abaixoBronze: QuaseCliente[];
 }) {
   const [classificando, setClassificando] = React.useState(false);
   const [disparandoTpl, setDisparandoTpl] = React.useState<string | null>(null);
   const [filtroNivel, setFiltroNivel] = React.useState<NivelClube | "todos">("todos");
+  const [filtroUnidadeMembros, setFiltroUnidadeMembros] = React.useState<string>("todas");
 
   // mes_ref = mes_aplicacao - 1
   const mesRefDate = new Date(mesAplicacao + "T12:00:00");
   mesRefDate.setMonth(mesRefDate.getMonth() - 1);
   const mesRefStr = `${mesRefDate.getFullYear()}-${String(mesRefDate.getMonth() + 1).padStart(2, "0")}-01`;
 
-  const filtradas = classificacoes.filter((c) => filtroNivel === "todos" || c.nivel === filtroNivel);
+  const filtradas = classificacoes.filter((c) =>
+    (filtroNivel === "todos" || c.nivel === filtroNivel) &&
+    (filtroUnidadeMembros === "todas" || c.unidade_id === filtroUnidadeMembros));
+
+  // ── Marcação "mensagem do mês enviada" (tipo qualificação) ────────────
+  // Estado ÚNICO compartilhado entre a Situação por Unidade e a seção
+  // "Quase lá" — marcar num lugar reflete no outro.
+  const [enviadosQual, setEnviadosQual] = React.useState<Set<string>>(new Set(enviosQualificacao));
+  const alternarEnvioQual = React.useCallback(async (clienteId: string, unidadeId: string | null, valor: boolean) => {
+    setEnviadosQual((s) => {
+      const n = new Set(s);
+      if (valor) n.add(clienteId); else n.delete(clienteId);
+      return n;
+    });
+    const r = await marcarEnvioManual({ clienteId, unidadeId, mesRef: mesRefStr, tipo: "qualificacao", enviado: valor });
+    if (!r.ok) {
+      setEnviadosQual((s) => {
+        const n = new Set(s);
+        if (valor) n.delete(clienteId); else n.add(clienteId);
+        return n;
+      });
+    }
+  }, [mesRefStr]);
 
   async function onReclassificar() {
     if (!confirm(
@@ -275,10 +300,11 @@ export function ClubeView({
         mesRefStr={mesRefStr}
         mesAplicacao={mesAplicacao}
         templates={templates}
-        enviosIniciais={enviosQualificacao}
+        enviados={enviadosQual}
+        onAlternar={alternarEnvioQual}
       />
 
-      {/* Filtro nível */}
+      {/* Filtros da tabela de membros */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card">
           <Filter className="w-3.5 h-3.5 text-muted-foreground" />
@@ -288,6 +314,17 @@ export function ClubeView({
             {NIVEIS.filter((n) => n.key !== "nao_classificado").map((n) => (
               <option key={n.key} value={n.key}>{n.label} ({resumo.porNivel[n.key]})</option>
             ))}
+          </select>
+        </div>
+        <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card">
+          <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+          <select value={filtroUnidadeMembros} onChange={(e) => setFiltroUnidadeMembros(e.target.value)}
+            className="form-input h-7 py-0 text-[12px]">
+            <option value="todas">Todas as unidades</option>
+            {unidades.map((u) => {
+              const qtd = classificacoes.filter((c) => c.unidade_id === u.id).length;
+              return <option key={u.id} value={u.id}>{u.nome} ({qtd})</option>;
+            })}
           </select>
         </div>
       </div>
@@ -373,6 +410,203 @@ export function ClubeView({
           </div>
         </div>
       )}
+
+      {/* Quase lá — usaram no mês ref mas não atingiram nível */}
+      <AbaixoBronzeSection
+        clientes={abaixoBronze}
+        unidades={unidades}
+        templates={templates}
+        mesRefStr={mesRefStr}
+        mesAplicacao={mesAplicacao}
+        enviados={enviadosQual}
+        onAlternar={alternarEnvioQual}
+      />
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// QUASE LÁ — usaram a lavanderia no mês de referência mas não
+// atingiram nível. Relação separada pra mensagem de incentivo:
+// "faltaram X ciclos; este mês uma nova oportunidade começou".
+// ────────────────────────────────────────────────────────────
+function AbaixoBronzeSection({
+  clientes, unidades, templates, mesRefStr, mesAplicacao, enviados, onAlternar,
+}: {
+  clientes: QuaseCliente[];
+  unidades: Unidade[];
+  templates: TemplateMensagem[];
+  mesRefStr: string;
+  mesAplicacao: string;
+  enviados: Set<string>;
+  onAlternar: (clienteId: string, unidadeId: string | null, valor: boolean) => Promise<void>;
+}) {
+  const [filtroUnidade, setFiltroUnidade] = React.useState<string>("todas");
+  const [busca, setBusca] = React.useState("");
+  const [soPendentes, setSoPendentes] = React.useState(false);
+
+  const tpl = templates.find((t) => t.tipo === "abaixo_bronze" && t.ativo !== false) ?? null;
+
+  const mensagemDe = React.useCallback((c: QuaseCliente): string | null => {
+    if (!tpl) return null;
+    return renderMensagem(tpl.mensagem, {
+      primeiro_nome: c.nome.split(" ")[0],
+      nome: c.nome,
+      cpf: c.cpf,
+      ciclos: c.ciclos,
+      ciclos_palavra: c.ciclos === 1 ? "ciclo" : "ciclos",
+      faltam: c.faltaram,
+      proximo_nivel: "BRONZE",
+      desconto_proximo: NIVEIS.find((n) => n.key === "bronze")?.descontoPct ?? 5,
+      mes_ref_nome: nomeDoMes(mesRefStr),
+      mes_aplic_nome: nomeDoMes(mesAplicacao),
+      link_portal: LINK_PORTAL_CLIENTE,
+      pontos: 0, nivel: "—", desconto: 0, faltam_proximo: c.faltaram,
+    });
+  }, [tpl, mesRefStr, mesAplicacao]);
+
+  function abrirWhatsApp(c: QuaseCliente) {
+    const msg = mensagemDe(c);
+    if (!c.telefone || !msg) return;
+    window.open(linkWhatsApp(c.telefone, msg), "_blank", "noopener");
+    if (!enviados.has(c.cliente_id)) void onAlternar(c.cliente_id, c.unidade_id, true);
+  }
+
+  const buscaNorm = busca.trim().toLowerCase();
+  const filtrados = clientes.filter((c) => {
+    if (filtroUnidade !== "todas" && c.unidade_id !== filtroUnidade) return false;
+    if (soPendentes && enviados.has(c.cliente_id)) return false;
+    if (buscaNorm) {
+      return c.nome.toLowerCase().includes(buscaNorm)
+        || c.cpf.replace(/\D/g, "").includes(buscaNorm.replace(/\D/g, ""));
+    }
+    return true;
+  });
+  const totalEnviados = clientes.filter((c) => enviados.has(c.cliente_id)).length;
+
+  if (clientes.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border border-warning/30 bg-card overflow-hidden">
+      <div className="px-5 py-4 border-b border-border bg-gradient-to-r from-warning/10 to-transparent">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-display font-bold text-[14px] inline-flex items-center gap-2">
+              <TrendingDown className="w-4 h-4 text-warning rotate-180" />
+              Quase lá · usaram em {nomeDoMes(mesRefStr)} mas não atingiram nível ({clientes.length})
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              Mensagem de incentivo: quantos ciclos fizeram, quantos faltaram pro Bronze e que a nova
+              oportunidade começou em {nomeDoMes(mesAplicacao)}.
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={cn("text-[11px] font-semibold inline-flex items-center gap-1",
+              totalEnviados === clientes.length ? "text-success" : "text-muted-foreground")}>
+              <MessageCircle className="w-3 h-3" /> {totalEnviados}/{clientes.length} enviadas
+            </span>
+            <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer select-none">
+              <input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)}
+                className="accent-warning" />
+              Só pendentes
+            </label>
+            <div className="inline-flex items-center gap-1.5 border border-border bg-muted/30 rounded-md px-2.5 py-1.5">
+              <Building2 className="w-3 h-3 text-muted-foreground" />
+              <select value={filtroUnidade} onChange={(e) => setFiltroUnidade(e.target.value)}
+                className="bg-transparent text-[11px] outline-none">
+                <option value="todas">Todas as unidades</option>
+                {unidades.map((u) => {
+                  const qtd = clientes.filter((c) => c.unidade_id === u.id).length;
+                  return <option key={u.id} value={u.id}>{u.nome} ({qtd})</option>;
+                })}
+              </select>
+            </div>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar cliente..."
+              className="form-input h-8 text-[12px] w-40 py-0"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scroll-thin">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-card z-10 border-b border-border">
+            <tr className="text-[9px] uppercase tracking-wider text-muted-foreground">
+              <th className="text-left py-2 px-3 font-semibold w-12">#</th>
+              <th className="text-left py-2 px-3 font-semibold">Cliente</th>
+              <th className="text-left py-2 px-3 font-semibold">Unidade</th>
+              <th className="text-right py-2 px-3 font-semibold">Ciclos em {nomeDoMes(mesRefStr)}</th>
+              <th className="text-right py-2 px-3 font-semibold">Lav/Sec</th>
+              <th className="text-right py-2 px-3 font-semibold">Gasto</th>
+              <th className="text-left py-2 px-3 font-semibold">Faltaram p/ Bronze</th>
+              <th className="text-left py-2 px-3 font-semibold">Mensagem do mês</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.map((c, idx) => (
+              <motion.tr key={c.cliente_id}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                transition={{ delay: Math.min(idx * 0.005, 0.2) }}
+                className="border-b border-border/40 hover:bg-secondary/20">
+                <td className="py-2 px-3 font-mono font-bold text-muted-foreground">#{idx + 1}</td>
+                <td className="py-2 px-3">
+                  <div className="font-semibold">{c.nome}</div>
+                  <div className="text-[10px] text-muted-foreground font-mono">{c.cpf}</div>
+                </td>
+                <td className="py-2 px-3 text-[11px] text-muted-foreground">{c.unidade_nome}</td>
+                <td className="py-2 px-3 text-right font-mono font-bold">{c.ciclos}</td>
+                <td className="py-2 px-3 text-right font-mono text-[10px] text-muted-foreground">
+                  {c.ciclos_lavagem}/{c.ciclos_secagem}
+                </td>
+                <td className="py-2 px-3 text-right font-mono">{fmtBRL(c.faturamento)}</td>
+                <td className="py-2 px-3">
+                  <span className="font-mono font-bold text-warning">{c.faltaram}</span>
+                  <span className="text-[10px] text-muted-foreground ml-1">
+                    {c.faltaram === 1 ? "ciclo" : "ciclos"} (Bronze = 8)
+                  </span>
+                </td>
+                <td className="py-2 px-3">
+                  {c.telefone && mensagemDe(c) ? (
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        onClick={() => abrirWhatsApp(c)}
+                        title={`Abrir WhatsApp Web com a mensagem pronta\n\n${mensagemDe(c)}`}
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-smooth",
+                          enviados.has(c.cliente_id)
+                            ? "bg-secondary text-muted-foreground hover:text-foreground"
+                            : "bg-[#25D366]/15 text-[#1faa52] hover:bg-[#25D366]/25",
+                        )}>
+                        <MessageCircle className="w-3.5 h-3.5" /> Conversar
+                      </button>
+                      <label className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
+                        <input type="checkbox" checked={enviados.has(c.cliente_id)}
+                          onChange={(e) => onAlternar(c.cliente_id, c.unidade_id, e.target.checked)}
+                          className="accent-[#25D366]" />
+                        {enviados.has(c.cliente_id)
+                          ? <span className="text-success font-semibold">enviada</span>
+                          : "enviada?"}
+                      </label>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] opacity-40 inline-flex items-center gap-1">
+                      <Phone className="w-2.5 h-2.5" /> sem telefone
+                    </span>
+                  )}
+                </td>
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
+        {filtrados.length === 0 && (
+          <div className="py-8 text-center text-[12px] text-muted-foreground">
+            Nenhum cliente bate com os filtros atuais.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -393,18 +627,18 @@ function KpiNivel({ icon: Icon, label, valor, tone }: { icon: React.ElementType;
 // SITUAÇÃO AO VIVO POR UNIDADE — todos os clientes do mês_ref
 // ────────────────────────────────────────────────────────────
 function SituacaoPorUnidade({
-  situacao, mesRefStr, mesAplicacao, templates, enviosIniciais,
+  situacao, mesRefStr, mesAplicacao, templates, enviados, onAlternar,
 }: {
   situacao: SituacaoUnidade[];
   mesRefStr: string;
   mesAplicacao: string;
   templates: TemplateMensagem[];
-  enviosIniciais: string[];
+  enviados: Set<string>;
+  onAlternar: (clienteId: string, unidadeId: string | null, valor: boolean) => Promise<void>;
 }) {
   const [unidadeAberta, setUnidadeAberta] = React.useState<string | null>(situacao[0]?.unidade_id ?? null);
   const [filtroNivel, setFiltroNivel] = React.useState<NivelClube | "todos">("todos");
   const [busca, setBusca] = React.useState("");
-  const [enviados, setEnviados] = React.useState<Set<string>>(new Set(enviosIniciais));
   const [soPendentes, setSoPendentes] = React.useState(false);
 
   // Mensagem de qualificação: com nível VIGENTE → template do nível (fala dos
@@ -448,22 +682,7 @@ function SituacaoPorUnidade({
   }, [templates, mesRefStr, mesAplicacao]);
 
   async function alternarEnviado(c: SituacaoCliente, valor: boolean) {
-    setEnviados((s) => {
-      const n = new Set(s);
-      if (valor) n.add(c.cliente_id); else n.delete(c.cliente_id);
-      return n;
-    });
-    const r = await marcarEnvioManual({
-      clienteId: c.cliente_id, unidadeId: c.unidade_id,
-      mesRef: mesRefStr, tipo: "qualificacao", enviado: valor,
-    });
-    if (!r.ok) { // rollback otimista
-      setEnviados((s) => {
-        const n = new Set(s);
-        if (valor) n.delete(c.cliente_id); else n.add(c.cliente_id);
-        return n;
-      });
-    }
+    await onAlternar(c.cliente_id, c.unidade_id, valor);
   }
 
   function abrirWhatsApp(c: SituacaoCliente) {

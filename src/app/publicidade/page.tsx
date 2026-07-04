@@ -4,7 +4,7 @@ import { listarCampanhas } from "@/lib/marketing/queries";
 import { listarUnidades, getUnidadeAtiva } from "@/lib/unidade-ativa";
 import {
   listarClassificacoes, resumoClube, listarMesesDisponiveis, listarTemplates,
-  getSituacaoClientes,
+  getSituacaoClientes, getAbaixoBronze,
 } from "@/lib/clube/queries";
 import { parseSelecaoUnidades } from "@/lib/unidade-multi";
 import { listarEnviosManuais } from "@/lib/clube/envios-manuais";
@@ -55,6 +55,7 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
     listarEnviosManuais(mesRef, "qualificacao"),
     listarEnviosManuais(mesAtual, "xoclub"),
   ]);
+  const abaixoBronze = await getAbaixoBronze(selecao.ids, mesRef);
   const templatePortal = templates.find((t) => t.tipo === "xoclub_portal")?.mensagem ?? null;
 
   return (
@@ -71,6 +72,7 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
         clubeSituacao={situacaoUnidades}
         clubeSelecaoUnidades={selecao}
         clubeEnviosQualificacao={enviosQualificacao}
+        clubeAbaixoBronze={abaixoBronze}
         xoclubResumo={xoclubResumo}
         xoclubSaldos={xoclubSaldos}
         xoclubProdutos={xoclubProdutos}
