@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useEffect, useState } from "react";
 import { LiveClock } from "./live-clock";
 import { MobileNavTrigger } from "./mobile-nav";
-import { UnidadeSwitcher, type UnidadeOpt } from "./unidade-switcher";
+import type { UnidadeOpt } from "./unidade-switcher";
 import type { SessionUser } from "./types";
 
 export function Topbar({
@@ -15,10 +15,14 @@ export function Topbar({
   unidadeAtivaId,
   user,
 }: {
+  // mantidos por compatibilidade de props (o filtro de unidade saiu do
+  // cabeçalho — a seleção agora é pelos chips dentro de cada tela)
   unidades: UnidadeOpt[];
   unidadeAtivaId: string;
   user?: SessionUser;
 }) {
+  void unidades;
+  void unidadeAtivaId;
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -46,9 +50,6 @@ export function Topbar({
 
         {/* Right cluster */}
         <div className="flex items-center gap-1.5">
-          {/* Switcher de unidade — sempre visível, é a base do contexto */}
-          <UnidadeSwitcher unidades={unidades} ativaId={unidadeAtivaId} />
-
           {/* Live clock — compact mobile, full desktop */}
           <div className="md:hidden">
             <LiveClock compact />
