@@ -10,6 +10,7 @@ import { parseSelecaoUnidades } from "@/lib/unidade-multi";
 import { listarEnviosManuais } from "@/lib/clube/envios-manuais";
 import {
   getResumoXoClub, getSaldosClientes, getProdutos, getResgates, getConfigXoClub,
+  getUsuariosDeOntem,
 } from "@/lib/xoclub/queries";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,9 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
     listarEnviosManuais(mesAtual, "xoclub"),
   ]);
   const abaixoBronze = await getAbaixoBronze(selecao.ids, mesRef);
+  const usuariosOntem = await getUsuariosDeOntem();
+  const enviosSaldo = await listarEnviosManuais(usuariosOntem.dia, "xoclub_saldo");
+  const templateSaldoDiario = templates.find((t) => t.tipo === "xoclub_saldo_diario" && t.ativo)?.mensagem ?? null;
   const tplPortalRow = templates.find((t) => t.tipo === "xoclub_portal" && t.ativo);
   const templatePortal = tplPortalRow?.mensagem ?? null;
   const templatePortalBanner = tplPortalRow?.banner_url ?? null;
@@ -84,6 +88,9 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
         xoclubTemplatePortalBanner={templatePortalBanner}
         xoclubEnviosPortal={enviosXoclub}
         xoclubMesAtual={mesAtual}
+        xoclubUsuariosOntem={usuariosOntem}
+        xoclubTemplateSaldoDiario={templateSaldoDiario}
+        xoclubEnviosSaldo={enviosSaldo}
       />
     </AppShell>
   );

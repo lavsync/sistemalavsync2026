@@ -21,7 +21,7 @@ import {
 import { ClubeView } from "./clube-view";
 import { XoClubView } from "./xoclub-view";
 import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, QuaseCliente } from "@/lib/clube/queries";
-import type { ResumoXoClub, SaldoCliente, Produto, Resgate, XoClubConfig } from "@/lib/xoclub/queries";
+import type { ResumoXoClub, SaldoCliente, Produto, Resgate, XoClubConfig, UsuarioDoDia } from "@/lib/xoclub/queries";
 import type { SelecaoUnidades } from "@/lib/unidade-multi";
 
 type Unidade = { id: string; nome: string };
@@ -61,6 +61,7 @@ export function MarketingView({
   clubeSituacao, clubeSelecaoUnidades, clubeEnviosQualificacao, clubeAbaixoBronze,
   xoclubResumo, xoclubSaldos, xoclubProdutos, xoclubResgates, xoclubConfig,
   xoclubTemplatePortal, xoclubTemplatePortalBanner, xoclubEnviosPortal, xoclubMesAtual,
+  xoclubUsuariosOntem, xoclubTemplateSaldoDiario, xoclubEnviosSaldo,
 }: {
   campanhas: Campanha[];
   unidades: Unidade[];
@@ -83,6 +84,9 @@ export function MarketingView({
   xoclubTemplatePortalBanner: string | null;
   xoclubEnviosPortal: string[];
   xoclubMesAtual: string;
+  xoclubUsuariosOntem: { dia: string; usuarios: UsuarioDoDia[] };
+  xoclubTemplateSaldoDiario: string | null;
+  xoclubEnviosSaldo: string[];
 }) {
   const [tab, setTab] = React.useState<"campanhas" | "clube" | "xoclub">("campanhas");
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>(unidadeAtivaId);
@@ -236,6 +240,9 @@ export function MarketingView({
             templatePortalBanner={xoclubTemplatePortalBanner}
             enviosPortal={xoclubEnviosPortal}
             mesAtual={xoclubMesAtual}
+            usuariosOntem={xoclubUsuariosOntem}
+            templateSaldoDiario={xoclubTemplateSaldoDiario}
+            enviosSaldo={xoclubEnviosSaldo}
           />
         </Tabs.Content>
       </Tabs.Root>

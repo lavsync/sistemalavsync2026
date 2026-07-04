@@ -14,6 +14,166 @@ import {
 import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
 import { renderMensagem, linkWhatsApp, LINK_PORTAL_CLIENTE } from "@/lib/clube/render-mensagem";
 import { BotaoCopiarBanner } from "./template-editor";
+import type { UsuarioDoDia } from "@/lib/xoclub/queries";
+
+// ─── SALDO DO DIA — quem usou ONTEM recebe a atualização de saldo ───────────
+function SaldoDoDiaView({
+  dia, usuarios, template, enviosIniciais,
+}: {
+  dia: string;
+  usuarios: UsuarioDoDia[];
+  template: string | null;
+  enviosIniciais: string[];
+}) {
+  const [enviados, setEnviados] = React.useState<Set<string>>(new Set(enviosIniciais));
+  const [soPendentes, setSoPendentes] = React.useState(false);
+  const [busca, setBusca] = React.useState("");
+
+  const mensagemDe = React.useCallback((u: UsuarioDoDia): string | null => {
+    if (!template) return null;
+    return renderMensagem(template, {
+      primeiro_nome: u.nome.split(" ")[0],
+      nome: u.nome,
+      lavcoins_dia: Math.round(u.gasto_dia),
+      lavcoins_dia_reais: `R$ ${u.gasto_dia.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+      lavcoins: u.saldo_lavcoins,
+      pontos: u.saldo_lavcoins,
+      ciclos: u.ciclos_dia,
+      dias_de_cliente: u.dias_de_cliente ?? 0,
+      link_portal: LINK_PORTAL_CLIENTE,
+    });
+  }, [template]);
+
+  async function alternar(u: UsuarioDoDia, valor: boolean) {
+    setEnviados((s) => {
+      const n = new Set(s);
+      if (valor) n.add(u.cliente_id); else n.delete(u.cliente_id);
+      return n;
+    });
+    const r = await marcarEnvioManual({
+      clienteId: u.cliente_id, unidadeId: u.unidade_id,
+      mesRef: dia, tipo: "xoclub_saldo", enviado: valor,
+    });
+    if (!r.ok) {
+      setEnviados((s) => {
+        const n = new Set(s);
+        if (valor) n.delete(u.cliente_id); else n.add(u.cliente_id);
+        return n;
+      });
+    }
+  }
+
+  function abrir(u: UsuarioDoDia) {
+    const msg = mensagemDe(u);
+    if (!u.telefone || !msg) return;
+    window.open(linkWhatsApp(u.telefone, msg), "_blank", "noopener");
+    if (!enviados.has(u.cliente_id)) void alternar(u, true);
+  }
+
+  const b = busca.trim().toLowerCase();
+  const filtrados = usuarios.filter((u) => {
+    if (soPendentes && enviados.has(u.cliente_id)) return false;
+    if (b) return u.nome.toLowerCase().includes(b) || u.cpf.replace(/\D/g, "").includes(b.replace(/\D/g, ""));
+    return true;
+  });
+  const totalEnviados = usuarios.filter((u) => enviados.has(u.cliente_id)).length;
+  const diaFmt = new Date(dia + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-border bg-card p-4 flex flex-wrap items-center gap-3">
+        <div>
+          <div className="font-display font-bold text-[14px] inline-flex items-center gap-2">
+            <Coins className="w-4 h-4 text-brand-cyan" />
+            Atualização de saldo · usaram em {diaFmt}
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">
+            Cada cliente recebe a mensagem com os LavCoins que somou ontem (1 por R$1, lavando ou secando) e o saldo total.
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-3 flex-wrap">
+          <span className={cn("text-[11px] font-semibold inline-flex items-center gap-1",
+            totalEnviados === usuarios.length && usuarios.length > 0 ? "text-success" : "text-muted-foreground")}>
+            <MessageCircle className="w-3 h-3" /> {totalEnviados}/{usuarios.length} enviadas
+          </span>
+          <label className="inline-flex items-center gap-1.5 text-[11px] cursor-pointer select-none">
+            <input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)} className="accent-brand-cyan" />
+            Só pendentes
+          </label>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar..."
+            className="form-input w-40 h-8 py-0 text-[12px]" />
+        </div>
+      </div>
+
+      {usuarios.length === 0 ? (
+        <div className="rounded-2xl border-2 border-dashed border-border bg-muted/10 p-10 text-center text-[12px] text-muted-foreground">
+          Nenhum cliente identificado usou a lavanderia em {diaFmt}. Importe as vendas do dia para montar a lista.
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-border bg-card overflow-hidden">
+          <div className="overflow-x-auto max-h-[640px] overflow-y-auto custom-scroll-thin">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-card z-10 border-b border-border">
+                <tr className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                  <th className="text-left py-2 px-3 font-semibold w-12">#</th>
+                  <th className="text-left py-2 px-3 font-semibold">Cliente</th>
+                  <th className="text-left py-2 px-3 font-semibold">Unidade</th>
+                  <th className="text-right py-2 px-3 font-semibold">LavCoins ontem</th>
+                  <th className="text-right py-2 px-3 font-semibold">Ciclos</th>
+                  <th className="text-right py-2 px-3 font-semibold">Saldo total</th>
+                  <th className="text-right py-2 px-3 font-semibold">Dias de cliente</th>
+                  <th className="text-left py-2 px-3 font-semibold">Mensagem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrados.map((u, i) => (
+                  <motion.tr key={u.cliente_id}
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    transition={{ delay: Math.min(i * 0.005, 0.2) }}
+                    className="border-b border-border/40 hover:bg-secondary/20">
+                    <td className="py-2 px-3 font-mono font-bold text-muted-foreground">#{i + 1}</td>
+                    <td className="py-2 px-3">
+                      <div className="font-semibold">{u.nome}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">{u.cpf}</div>
+                    </td>
+                    <td className="py-2 px-3 text-[11px] text-muted-foreground">{u.unidade_nome}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-brand-cyan">+{Math.round(u.gasto_dia)}</td>
+                    <td className="py-2 px-3 text-right font-mono">{u.ciclos_dia}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold">{u.saldo_lavcoins}</td>
+                    <td className="py-2 px-3 text-right font-mono text-muted-foreground">{u.dias_de_cliente ?? "—"}</td>
+                    <td className="py-2 px-3">
+                      {u.telefone && mensagemDe(u) ? (
+                        <div className="inline-flex items-center gap-2">
+                          <button onClick={() => abrir(u)}
+                            title={`Abrir WhatsApp Web com a mensagem pronta\n\n${mensagemDe(u)}`}
+                            className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-smooth",
+                              enviados.has(u.cliente_id)
+                                ? "bg-secondary text-muted-foreground hover:text-foreground"
+                                : "bg-[#25D366]/15 text-[#128a44] hover:bg-[#25D366]/25")}>
+                            <MessageCircle className="w-3.5 h-3.5" /> Conversar
+                          </button>
+                          <label className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
+                            <input type="checkbox" checked={enviados.has(u.cliente_id)}
+                              onChange={(e) => alternar(u, e.target.checked)} className="accent-[#25D366]" />
+                            {enviados.has(u.cliente_id)
+                              ? <span className="text-success font-semibold">enviada</span>
+                              : "enviada?"}
+                          </label>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] opacity-40">sem telefone</span>
+                      )}
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +200,7 @@ const NIVEL_ICON_MAP: Record<NivelXoClub, React.ElementType> = {
 export function XoClubView({
   resumo, saldos, produtos, resgates, config, unidades,
   templatePortal, templatePortalBanner, enviosPortal, mesAtual,
+  usuariosOntem, templateSaldoDiario, enviosSaldo,
 }: {
   resumo: ResumoXoClub;
   saldos: SaldoCliente[];
@@ -51,8 +212,11 @@ export function XoClubView({
   templatePortalBanner: string | null;
   enviosPortal: string[];
   mesAtual: string;
+  usuariosOntem: { dia: string; usuarios: UsuarioDoDia[] };
+  templateSaldoDiario: string | null;
+  enviosSaldo: string[];
 }) {
-  const [tab, setTab] = React.useState<"dashboard" | "saldos" | "store" | "resgates" | "config">("dashboard");
+  const [tab, setTab] = React.useState<"dashboard" | "saldos" | "saldo_dia" | "store" | "resgates" | "config">("dashboard");
   void unidades;
 
   return (
@@ -80,7 +244,8 @@ export function XoClubView({
       <Tabs.Root value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <Tabs.List className="flex flex-wrap gap-1 rounded-xl border border-border bg-card p-1">
           <TabBtn value="dashboard" icon={TrendingUp}     label="Dashboard" />
-          <TabBtn value="saldos"    icon={Users}          label={`Saldos (${resumo.total_clientes})`} />
+          <TabBtn value="saldos"    icon={Users}          label={`Saldos (${saldos.length})`} />
+          <TabBtn value="saldo_dia" icon={Coins}          label={`Saldo do dia (${usuariosOntem.usuarios.length})`} />
           <TabBtn value="store"     icon={ShoppingBag}    label={`Store (${produtos.filter((p) => p.ativo).length})`} />
           <TabBtn value="resgates"  icon={Gift}           label={`Resgates (${resgates.filter((r) => r.status === "solicitado").length})`} />
           <TabBtn value="config"    icon={Sparkles}       label="Configurações" />
@@ -91,6 +256,10 @@ export function XoClubView({
         </Tabs.Content>
         <Tabs.Content value="saldos" className="outline-none mt-5">
           <SaldosView saldos={saldos} templatePortal={templatePortal} templatePortalBanner={templatePortalBanner} enviosPortal={enviosPortal} mesAtual={mesAtual} />
+        </Tabs.Content>
+        <Tabs.Content value="saldo_dia" className="outline-none mt-5">
+          <SaldoDoDiaView dia={usuariosOntem.dia} usuarios={usuariosOntem.usuarios}
+            template={templateSaldoDiario} enviosIniciais={enviosSaldo} />
         </Tabs.Content>
         <Tabs.Content value="store" className="outline-none mt-5">
           <StoreView produtos={produtos} saldos={saldos} />
@@ -232,7 +401,6 @@ function SaldosView({
   mesAtual: string;
 }) {
   const [busca, setBusca] = React.useState("");
-  const [filtroNivel, setFiltroNivel] = React.useState<NivelXoClub | "todos">("todos");
   const [ajustando, setAjustando] = React.useState<SaldoCliente | null>(null);
   const [enviados, setEnviados] = React.useState<Set<string>>(new Set(enviosPortal));
 
@@ -275,7 +443,6 @@ function SaldosView({
   }
 
   const filtrados = saldos.filter((s) => {
-    if (filtroNivel !== "todos" && s.nivel !== filtroNivel) return false;
     const b = busca.trim().toLowerCase();
     if (!b) return true;
     return s.cliente_nome.toLowerCase().includes(b)
@@ -290,14 +457,9 @@ function SaldosView({
         <input value={busca} onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar nome, CPF ou telefone..."
           className="flex-1 bg-transparent text-[13px] outline-none min-w-[200px]" />
-        <div className="inline-flex items-center gap-1.5 border border-border bg-muted/30 rounded-md px-2.5 py-1.5">
-          <Filter className="w-3 h-3 text-muted-foreground" />
-          <select value={filtroNivel} onChange={(e) => setFiltroNivel(e.target.value as NivelXoClub | "todos")}
-            className="bg-transparent text-[11px] outline-none">
-            <option value="todos">Todos os níveis</option>
-            {NIVEIS_XC.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
-          </select>
-        </div>
+        <span className="text-[11px] text-muted-foreground">
+          {saldos.length} clientes — todos que já lavaram ou secaram, desde o 1º dia · 1 LavCoin = R$1
+        </span>
       </div>
 
       <div className="rounded-2xl border border-border bg-card overflow-hidden">
@@ -307,21 +469,17 @@ function SaldosView({
               <tr className="text-[9px] uppercase tracking-wider text-muted-foreground">
                 <th className="text-left py-2 px-3 font-semibold w-12">#</th>
                 <th className="text-left py-2 px-3 font-semibold">Cliente</th>
-                <th className="text-left py-2 px-3 font-semibold">Nível</th>
                 <th className="text-left py-2 px-3 font-semibold">Unidade</th>
-                <th className="text-right py-2 px-3 font-semibold">Saldo XC</th>
-                <th className="text-right py-2 px-3 font-semibold">Lifetime</th>
+                <th className="text-right py-2 px-3 font-semibold">Saldo LavCoin</th>
+                <th className="text-right py-2 px-3 font-semibold">Total ganho</th>
                 <th className="text-right py-2 px-3 font-semibold">Resgatado</th>
-                <th className="text-left py-2 px-3 font-semibold">Próximo nível</th>
+                <th className="text-left py-2 px-3 font-semibold">Cadastro</th>
+                <th className="text-right py-2 px-3 font-semibold">Dias de cliente</th>
                 <th className="text-center py-2 px-3 font-semibold">Ação</th>
               </tr>
             </thead>
             <tbody>
               {filtrados.map((s, i) => {
-                const cor = corDoNivelXC(s.nivel);
-                const Icon = NIVEL_ICON_MAP[s.nivel];
-                const prox = proximoNivelXC(s.total_ganho_lifetime);
-                const ProxIcon = prox.proximo ? NIVEL_ICON_MAP[prox.proximo.key] : null;
                 return (
                   <motion.tr key={s.cliente_id}
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -332,29 +490,17 @@ function SaldosView({
                       <div className="font-semibold">{s.cliente_nome}</div>
                       <div className="text-[10px] text-muted-foreground font-mono">{s.cliente_cpf}</div>
                     </td>
-                    <td className="py-2 px-3">
-                      <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
-                        `bg-${cor}/15 text-${cor}`)}>
-                        <Icon className="w-3 h-3" /> {labelDoNivelXC(s.nivel)}
-                      </span>
-                    </td>
                     <td className="py-2 px-3 text-[11px] text-muted-foreground">{s.unidade_nome}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-brand-cyan">{s.saldo_atual}</td>
                     <td className="py-2 px-3 text-right font-mono text-muted-foreground">{s.total_ganho_lifetime}</td>
                     <td className="py-2 px-3 text-right font-mono text-muted-foreground">{s.total_resgatado_lifetime}</td>
-                    <td className="py-2 px-3">
-                      {prox.proximo && ProxIcon ? (
-                        <span className="inline-flex items-center gap-1.5 text-[11px]">
-                          <ProxIcon className={cn("w-3 h-3", `text-${prox.proximo.cor}`)} />
-                          <span className={cn("font-semibold", `text-${prox.proximo.cor}`)}>{prox.proximo.label}</span>
-                          <span className="text-muted-foreground">·</span>
-                          <span className="font-mono font-bold text-warning">faltam {prox.faltam} XC</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-success font-semibold">
-                          <Gem className="w-3 h-3" /> Topo
-                        </span>
-                      )}
+                    <td className="py-2 px-3 text-[11px] whitespace-nowrap">
+                      {s.cadastrado_em ? new Date(s.cadastrado_em).toLocaleDateString("pt-BR") : "—"}
+                    </td>
+                    <td className="py-2 px-3 text-right">
+                      {s.dias_de_cliente !== null
+                        ? <span className="font-mono font-bold">{s.dias_de_cliente}</span>
+                        : <span className="text-muted-foreground/40">—</span>}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <div className="inline-flex items-center gap-2">

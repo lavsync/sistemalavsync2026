@@ -2,7 +2,7 @@
 // LavSync · Clube · Marcação de envio manual (WhatsApp Web assistido)
 import { createClient } from "@/lib/supabase/server";
 
-export type TipoEnvioManual = "qualificacao" | "xoclub";
+export type TipoEnvioManual = "qualificacao" | "xoclub" | "xoclub_saldo";
 
 /** Marca/desmarca que o cliente recebeu a mensagem do mês (por tipo). */
 export async function marcarEnvioManual(args: {

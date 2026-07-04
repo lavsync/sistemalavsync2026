@@ -15,6 +15,11 @@ export type SaldoCliente = {
   total_resgatado_lifetime: number;
   nivel: NivelXoClub;
   ultima_movimentacao: string | null;
+  // XÔ Club Recompensas não tem título/nível — o que vale é o SALDO,
+  // desde quando o cliente é nosso e há quanto tempo:
+  cadastrado_em: string | null;
+  dias_de_cliente: number | null;
+  ultima_compra_em: string | null;
 };
 
 export type ResumoXoClub = {
@@ -132,8 +137,8 @@ export async function getResumoXoClub(unidadeIds: string[]): Promise<ResumoXoClu
   }
   const total = saldos.length;
 
-  // Top 10 com cliente + unidade resolvidos
-  const top10 = await getSaldosClientes(unidadeIds, { limit: 10 });
+  // Top 10 com cliente + unidade resolvidos (lista completa vem ordenada por saldo)
+  const top10 = (await getSaldosClientes(unidadeIds)).slice(0, 10);
 
   return {
     total_clientes: total,
@@ -151,56 +156,143 @@ export async function getSaldosClientes(
   unidadeIds: string[],
   opts?: { limit?: number; offset?: number; nivel?: NivelXoClub | "todos"; busca?: string },
 ): Promise<SaldoCliente[]> {
+  // XÔ Club Recompensas: lista TODOS os clientes que já lavaram ou secaram
+  // alguma vez, desde o primeiro dia da unidade (base = clientes com compra),
+  // com o saldo LavCoin (1 LavCoin por R$1 gasto). Sem título/nível.
   const sb = await createClient();
-  const limit = opts?.limit ?? 100;
-  const offset = opts?.offset ?? 0;
-  let q = sb
-    .from("xoclub_saldos")
-    .select(`
-      cliente_id, saldo_atual, total_ganho_lifetime, total_resgatado_lifetime, nivel, ultima_movimentacao, unidade_id,
-      cliente:clientes(nome, telefone, cpf),
-      unidade:unidades(nome)
-    `)
-    .order("saldo_atual", { ascending: false })
-    .range(offset, offset + limit - 1);
-  if (unidadeIds.length > 0) q = q.in("unidade_id", unidadeIds);
-  if (opts?.nivel && opts.nivel !== "todos") q = q.eq("nivel", opts.nivel);
-  const { data } = await q;
-  type Raw = {
-    cliente_id: string;
-    saldo_atual: number;
-    total_ganho_lifetime: number;
-    total_resgatado_lifetime: number;
-    nivel: NivelXoClub;
-    ultima_movimentacao: string | null;
-    unidade_id: string | null;
-    cliente: { nome: string; telefone: string | null; cpf: string } | Array<{ nome: string; telefone: string | null; cpf: string }> | null;
-    unidade: { nome: string } | Array<{ nome: string }> | null;
+
+  type Cli = {
+    id: string; nome: string; telefone: string | null; cpf: string;
+    unidade_id: string | null; cadastrado_em: string | null; ultima_compra_em: string | null;
   };
-  const rows = (data ?? []) as unknown as Raw[];
+  const clientes = await paginarTodos<Cli>((r) => {
+    let q = sb.from("clientes")
+      .select("id, nome, telefone, cpf, unidade_id, cadastrado_em, ultima_compra_em")
+      .gte("compras_total_qtd", 1);
+    if (unidadeIds.length > 0) q = q.in("unidade_id", unidadeIds);
+    return q.order("id").range(r.from, r.to);
+  });
+
+  // saldos em lote
+  const saldoMap = new Map<string, { saldo_atual: number; total_ganho_lifetime: number; total_resgatado_lifetime: number; nivel: NivelXoClub; ultima_movimentacao: string | null }>();
+  const ids = clientes.map((c) => c.id);
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data } = await sb.from("xoclub_saldos")
+      .select("cliente_id, saldo_atual, total_ganho_lifetime, total_resgatado_lifetime, nivel, ultima_movimentacao")
+      .in("cliente_id", ids.slice(i, i + 500));
+    for (const s of (data ?? []) as Array<{ cliente_id: string; saldo_atual: number; total_ganho_lifetime: number; total_resgatado_lifetime: number; nivel: NivelXoClub; ultima_movimentacao: string | null }>) {
+      saldoMap.set(s.cliente_id, s);
+    }
+  }
+  const { data: unds } = await sb.from("unidades").select("id, nome");
+  const undMap = new Map(((unds ?? []) as Array<{ id: string; nome: string }>).map((u) => [u.id, u.nome]));
+
+  const agora = Date.now();
   const buscaNorm = (opts?.busca ?? "").trim().toLowerCase();
-  return rows
-    .map((r) => {
-      const cli = Array.isArray(r.cliente) ? r.cliente[0] : r.cliente;
-      const und = Array.isArray(r.unidade) ? r.unidade[0] : r.unidade;
+  return clientes
+    .map((c) => {
+      const s = saldoMap.get(c.id);
       return {
-        cliente_id: r.cliente_id,
-        cliente_nome: cli?.nome ?? "—",
-        cliente_telefone: cli?.telefone ?? null,
-        cliente_cpf: cli?.cpf ?? "",
-        unidade_id: r.unidade_id,
-        unidade_nome: und?.nome ?? "—",
-        saldo_atual: r.saldo_atual,
-        total_ganho_lifetime: r.total_ganho_lifetime,
-        total_resgatado_lifetime: r.total_resgatado_lifetime,
-        nivel: r.nivel,
-        ultima_movimentacao: r.ultima_movimentacao,
+        cliente_id: c.id,
+        cliente_nome: c.nome,
+        cliente_telefone: c.telefone,
+        cliente_cpf: c.cpf,
+        unidade_id: c.unidade_id,
+        unidade_nome: c.unidade_id ? (undMap.get(c.unidade_id) ?? "—") : "—",
+        saldo_atual: s?.saldo_atual ?? 0,
+        total_ganho_lifetime: s?.total_ganho_lifetime ?? 0,
+        total_resgatado_lifetime: s?.total_resgatado_lifetime ?? 0,
+        nivel: s?.nivel ?? ("bronze" as NivelXoClub),
+        ultima_movimentacao: s?.ultima_movimentacao ?? null,
+        cadastrado_em: c.cadastrado_em,
+        dias_de_cliente: c.cadastrado_em
+          ? Math.max(0, Math.floor((agora - new Date(c.cadastrado_em).getTime()) / 86400000))
+          : null,
+        ultima_compra_em: c.ultima_compra_em,
       };
     })
+    .sort((a, b) => b.saldo_atual - a.saldo_atual)
     .filter((s) => !buscaNorm
       || s.cliente_nome.toLowerCase().includes(buscaNorm)
       || s.cliente_cpf.replace(/\D/g, "").includes(buscaNorm.replace(/\D/g, ""))
       || (s.cliente_telefone ?? "").includes(buscaNorm));
+}
+
+// ─── Quem usou a lavanderia ONTEM (mensagem de atualização de saldo) ────────
+export type UsuarioDoDia = {
+  cliente_id: string;
+  nome: string;
+  telefone: string | null;
+  cpf: string;
+  unidade_id: string;
+  unidade_nome: string;
+  gasto_dia: number;          // R$ gastos no dia = LavCoins ganhos
+  ciclos_dia: number;
+  saldo_lavcoins: number;     // saldo total atual
+  dias_de_cliente: number | null;
+};
+
+export async function getUsuariosDeOntem(): Promise<{ dia: string; usuarios: UsuarioDoDia[] }> {
+  const sb = await createClient();
+  const hojeBR = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+  const ontem = new Date(hojeBR.getTime() - 86400000);
+  const dia = `${ontem.getFullYear()}-${String(ontem.getMonth() + 1).padStart(2, "0")}-${String(ontem.getDate()).padStart(2, "0")}`;
+
+  type V = { cliente_id: string | null; unidade_id: string; valor: number | string; quantidade_ciclos: number | string | null };
+  const vendas = await paginarTodos<V>((r) =>
+    sb.from("vendas")
+      .select("cliente_id, unidade_id, valor, quantidade_ciclos")
+      .eq("situacao", "sucesso")
+      .gte("data_venda", `${dia}T00:00:00-03:00`)
+      .lte("data_venda", `${dia}T23:59:59.999-03:00`)
+      .not("cliente_id", "is", null)
+      .range(r.from, r.to),
+  );
+
+  const agg = new Map<string, { gasto: number; ciclos: number; unidade_id: string }>();
+  for (const v of vendas) {
+    if (!v.cliente_id) continue;
+    const cur = agg.get(v.cliente_id) ?? { gasto: 0, ciclos: 0, unidade_id: v.unidade_id };
+    cur.gasto += Number(v.valor) || 0;
+    cur.ciclos += Math.max(1, Number(v.quantidade_ciclos) || 1);
+    agg.set(v.cliente_id, cur);
+  }
+
+  const ids = [...agg.keys()];
+  const cliMap = new Map<string, { nome: string; telefone: string | null; cpf: string; cadastrado_em: string | null }>();
+  const saldoMap = new Map<string, number>();
+  for (let i = 0; i < ids.length; i += 500) {
+    const slice = ids.slice(i, i + 500);
+    const [{ data: cs }, { data: ss }] = await Promise.all([
+      sb.from("clientes").select("id, nome, telefone, cpf, cadastrado_em").in("id", slice),
+      sb.from("xoclub_saldos").select("cliente_id, saldo_atual").in("cliente_id", slice),
+    ]);
+    for (const c of (cs ?? []) as Array<{ id: string; nome: string; telefone: string | null; cpf: string; cadastrado_em: string | null }>) cliMap.set(c.id, c);
+    for (const s of (ss ?? []) as Array<{ cliente_id: string; saldo_atual: number }>) saldoMap.set(s.cliente_id, s.saldo_atual);
+  }
+  const { data: unds } = await sb.from("unidades").select("id, nome");
+  const undMap = new Map(((unds ?? []) as Array<{ id: string; nome: string }>).map((u) => [u.id, u.nome]));
+
+  const agora = Date.now();
+  const usuarios: UsuarioDoDia[] = [...agg.entries()].map(([cid, a]) => {
+    const c = cliMap.get(cid);
+    return {
+      cliente_id: cid,
+      nome: c?.nome ?? "—",
+      telefone: c?.telefone ?? null,
+      cpf: c?.cpf ?? "",
+      unidade_id: a.unidade_id,
+      unidade_nome: undMap.get(a.unidade_id) ?? "—",
+      gasto_dia: Math.round(a.gasto * 100) / 100,
+      ciclos_dia: a.ciclos,
+      saldo_lavcoins: saldoMap.get(cid) ?? 0,
+      dias_de_cliente: c?.cadastrado_em
+        ? Math.max(0, Math.floor((agora - new Date(c.cadastrado_em).getTime()) / 86400000))
+        : null,
+    };
+  }).sort((a, b) => b.gasto_dia - a.gasto_dia);
+
+  return { dia, usuarios };
 }
 
 export async function getProdutos(somenteAtivos = false): Promise<Produto[]> {

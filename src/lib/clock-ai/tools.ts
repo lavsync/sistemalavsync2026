@@ -59,6 +59,18 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "usuarios_do_dia",
+    description:
+      "Lista os clientes que usaram a lavanderia num dia específico (default: ontem), com gasto do dia (= LavCoins ganhos), ciclos, saldo total de LavCoins e dias de casa. Use para a rotina diária de mensagem de atualização de saldo e perguntas tipo 'quem usou ontem'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        data: { type: "string", description: "Dia YYYY-MM-DD (default: ontem, horário de Brasília)" },
+      },
+      required: [],
+    },
+  },
+  {
     name: "classificar_mes",
     description:
       "AÇÃO: roda a classificação do Clube para uma competência (recalcula níveis e pontos de todos os clientes). Antes de executar, SEMPRE pergunte ao usuário se confirma; só chame com confirmado=true após o sim explícito.",
@@ -252,6 +264,62 @@ async function buscarCliente(input: { termo: string }): Promise<Json> {
   return { encontrado: true, clientes: fichas };
 }
 
+async function usuariosDoDia(input: { data?: string }): Promise<Json> {
+  const sb = createAdminClient();
+  let dia = input.data;
+  if (!dia) {
+    const hojeBR = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+    const ontem = new Date(hojeBR.getTime() - 86400000);
+    dia = `${ontem.getFullYear()}-${String(ontem.getMonth() + 1).padStart(2, "0")}-${String(ontem.getDate()).padStart(2, "0")}`;
+  }
+  type V = { cliente_id: string | null; valor: number | string; quantidade_ciclos: number | string | null };
+  const vendas = await paginarTodos<V>((r) =>
+    sb.from("vendas")
+      .select("cliente_id, valor, quantidade_ciclos")
+      .eq("situacao", "sucesso")
+      .gte("data_venda", `${dia}T00:00:00-03:00`)
+      .lte("data_venda", `${dia}T23:59:59.999-03:00`)
+      .not("cliente_id", "is", null)
+      .range(r.from, r.to),
+  );
+  const agg = new Map<string, { gasto: number; ciclos: number }>();
+  for (const v of vendas) {
+    if (!v.cliente_id) continue;
+    const cur = agg.get(v.cliente_id) ?? { gasto: 0, ciclos: 0 };
+    cur.gasto += Number(v.valor) || 0;
+    cur.ciclos += Math.max(1, Number(v.quantidade_ciclos) || 1);
+    agg.set(v.cliente_id, cur);
+  }
+  const ids = [...agg.keys()];
+  const cliMap = new Map<string, { nome: string; telefone: string | null; cadastrado_em: string | null }>();
+  const saldoMap = new Map<string, number>();
+  for (let i = 0; i < ids.length; i += 500) {
+    const slice = ids.slice(i, i + 500);
+    const [{ data: cs }, { data: ss }] = await Promise.all([
+      sb.from("clientes").select("id, nome, telefone, cadastrado_em").in("id", slice),
+      sb.from("xoclub_saldos").select("cliente_id, saldo_atual").in("cliente_id", slice),
+    ]);
+    for (const c of (cs ?? []) as Array<{ id: string; nome: string; telefone: string | null; cadastrado_em: string | null }>) cliMap.set(c.id, c);
+    for (const s of (ss ?? []) as Array<{ cliente_id: string; saldo_atual: number }>) saldoMap.set(s.cliente_id, s.saldo_atual);
+  }
+  const agora = Date.now();
+  return {
+    dia,
+    total_clientes: agg.size,
+    clientes: [...agg.entries()].map(([cid, a]) => {
+      const c = cliMap.get(cid);
+      return {
+        nome: c?.nome ?? "—",
+        telefone: c?.telefone,
+        lavcoins_ganhos_no_dia: Math.round(a.gasto),
+        ciclos: a.ciclos,
+        saldo_total_lavcoins: saldoMap.get(cid) ?? 0,
+        dias_de_cliente: c?.cadastrado_em ? Math.floor((agora - new Date(c.cadastrado_em).getTime()) / 86400000) : null,
+      };
+    }).sort((a, b) => b.lavcoins_ganhos_no_dia - a.lavcoins_ganhos_no_dia),
+  };
+}
+
 async function acaoClassificarMes(input: { mes_ref: string; confirmado: boolean }): Promise<Json> {
   if (!input.confirmado) return { executado: false, motivo: "Aguardando confirmação do usuário" };
   if (!/^\d{4}-\d{2}-01$/.test(input.mes_ref)) return { executado: false, motivo: "mes_ref deve ser YYYY-MM-01" };
@@ -279,6 +347,7 @@ export async function executarTool(nome: string, input: unknown): Promise<string
       case "situacao_clube": r = await situacaoClube(); break;
       case "clientes_inativos": r = await clientesInativos(i); break;
       case "buscar_cliente": r = await buscarCliente(i); break;
+      case "usuarios_do_dia": r = await usuariosDoDia(i); break;
       case "classificar_mes": r = await acaoClassificarMes(i); break;
       case "processar_fila_mensagens": r = await acaoProcessarFila(i); break;
       default: r = { erro: `Ferramenta desconhecida: ${nome}` };
