@@ -7,7 +7,7 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Download, Printer, Users, Coins, Repeat, Percent, Filter } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, buscaCliente } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import type { LinhaRelatorio } from "@/lib/fidelidade/relatorio";
@@ -56,14 +56,13 @@ export function FidelidadeReportView({
 
   const filtradas = React.useMemo(() => {
     const fx = FAIXAS.find((f) => f.key === faixa) ?? FAIXAS[0];
-    const q = busca.trim().toLowerCase();
     return linhas.filter((l) => {
       if (unidade !== "todas" && l.unidade_id !== unidade) return false;
       if (nivel !== "todos" && l.nivel !== nivel) return false;
       if (genero !== "todos" && (l.genero ?? "").toLowerCase() !== genero) return false;
       if (faixa !== "todas" && (l.idade === null || l.idade < fx.min || l.idade > fx.max)) return false;
       if (cadastroDesde && (!l.cadastrado_em || l.cadastrado_em.slice(0, 10) < cadastroDesde)) return false;
-      if (q && !l.nome.toLowerCase().includes(q) && !l.cpf.includes(q)) return false;
+      if (!buscaCliente(busca, { nome: l.nome, cpf: l.cpf, telefone: l.telefone })) return false;
       return true;
     });
   }, [linhas, unidade, nivel, genero, faixa, cadastroDesde, busca]);

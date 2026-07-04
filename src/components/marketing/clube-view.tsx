@@ -9,7 +9,7 @@ import {
   Trash2, Copy as CopyIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, buscaCliente } from "@/lib/utils";
 import { NIVEIS, type NivelClube, labelDoNivel, corDoNivel, proximoNivel } from "@/lib/clube/niveis";
 import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, SituacaoCliente, QuaseCliente } from "@/lib/clube/queries";
 import { classificarMes, gerarDisparosClube } from "@/lib/clube/actions";
@@ -542,15 +542,10 @@ function AbaixoBronzeSection({
     if (!enviados.has(c.cliente_id)) void onAlternar(c.cliente_id, c.unidade_id, true);
   }
 
-  const buscaNorm = busca.trim().toLowerCase();
   const filtrados = clientes.filter((c) => {
     if (filtroUnidade !== "todas" && c.unidade_id !== filtroUnidade) return false;
     if (soPendentes && enviados.has(c.cliente_id)) return false;
-    if (buscaNorm) {
-      return c.nome.toLowerCase().includes(buscaNorm)
-        || c.cpf.replace(/\D/g, "").includes(buscaNorm.replace(/\D/g, ""));
-    }
-    return true;
+    return buscaCliente(busca, { nome: c.nome, cpf: c.cpf, telefone: c.telefone });
   });
   const totalEnviados = clientes.filter((c) => enviados.has(c.cliente_id)).length;
 
@@ -839,16 +834,10 @@ function SituacaoPorUnidade({
       </div>
 
       {situacao.filter((u) => u.unidade_id === unidadeAberta).map((u) => {
-        const buscaNorm = busca.trim().toLowerCase();
         const filtrados = u.clientes.filter((c) => {
           if (filtroNivel !== "todos" && (c.nivel_vigente ?? "nao_classificado") !== filtroNivel) return false;
           if (soPendentes && enviados.has(c.cliente_id)) return false;
-          if (buscaNorm) {
-            return c.nome.toLowerCase().includes(buscaNorm)
-              || c.cpf.replace(/\D/g, "").includes(buscaNorm.replace(/\D/g, ""))
-              || (c.telefone ?? "").includes(buscaNorm);
-          }
-          return true;
+          return buscaCliente(busca, { nome: c.nome, cpf: c.cpf, telefone: c.telefone });
         });
         const enviadosNaUnidade = u.clientes.filter((c) => enviados.has(c.cliente_id)).length;
 

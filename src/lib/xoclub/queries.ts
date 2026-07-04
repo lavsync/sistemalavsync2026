@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { paginarTodos } from "@/lib/supabase/pagination";
+import { buscaCliente } from "@/lib/utils";
 import type { NivelXoClub } from "./niveis";
 
 export type SaldoCliente = {
@@ -188,7 +189,6 @@ export async function getSaldosClientes(
   const undMap = new Map(((unds ?? []) as Array<{ id: string; nome: string }>).map((u) => [u.id, u.nome]));
 
   const agora = Date.now();
-  const buscaNorm = (opts?.busca ?? "").trim().toLowerCase();
   return clientes
     .map((c) => {
       const s = saldoMap.get(c.id);
@@ -212,10 +212,9 @@ export async function getSaldosClientes(
       };
     })
     .sort((a, b) => b.saldo_atual - a.saldo_atual)
-    .filter((s) => !buscaNorm
-      || s.cliente_nome.toLowerCase().includes(buscaNorm)
-      || s.cliente_cpf.replace(/\D/g, "").includes(buscaNorm.replace(/\D/g, ""))
-      || (s.cliente_telefone ?? "").includes(buscaNorm));
+    .filter((s) => buscaCliente(opts?.busca ?? "", {
+      nome: s.cliente_nome, cpf: s.cliente_cpf, telefone: s.cliente_telefone,
+    }));
 }
 
 // ─── Quem usou a lavanderia ONTEM (mensagem de atualização de saldo) ────────

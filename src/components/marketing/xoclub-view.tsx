@@ -70,11 +70,9 @@ function SaldoDoDiaView({
     if (!enviados.has(u.cliente_id)) void alternar(u, true);
   }
 
-  const b = busca.trim().toLowerCase();
   const filtrados = usuarios.filter((u) => {
     if (soPendentes && enviados.has(u.cliente_id)) return false;
-    if (b) return u.nome.toLowerCase().includes(b) || u.cpf.replace(/\D/g, "").includes(b.replace(/\D/g, ""));
-    return true;
+    return buscaCliente(busca, { nome: u.nome, cpf: u.cpf, telefone: u.telefone });
   });
   const totalEnviados = usuarios.filter((u) => enviados.has(u.cliente_id)).length;
   const diaFmt = new Date(dia + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
@@ -174,7 +172,7 @@ function SaldoDoDiaView({
     </div>
   );
 }
-import { cn } from "@/lib/utils";
+import { cn, buscaCliente } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   NIVEIS_XC, classificarXC, proximoNivelXC, type NivelXoClub, iconDoNivelXC, corDoNivelXC, labelDoNivelXC,
@@ -442,13 +440,8 @@ function SaldosView({
     if (!enviados.has(s.cliente_id)) void alternarEnviado(s, true);
   }
 
-  const filtrados = saldos.filter((s) => {
-    const b = busca.trim().toLowerCase();
-    if (!b) return true;
-    return s.cliente_nome.toLowerCase().includes(b)
-      || s.cliente_cpf.replace(/\D/g, "").includes(b.replace(/\D/g, ""))
-      || (s.cliente_telefone ?? "").includes(b);
-  });
+  const filtrados = saldos.filter((s) =>
+    buscaCliente(busca, { nome: s.cliente_nome, cpf: s.cliente_cpf, telefone: s.cliente_telefone }));
 
   return (
     <div className="space-y-3">
