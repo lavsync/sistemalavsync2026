@@ -102,7 +102,7 @@
   --secondary: #F1F5F9;
   --secondary-foreground: #0B1220;
   --muted: #F1F5F9;
-  --muted-foreground: #64748B;     /* Cinza Médio */
+  --muted-foreground: #475569;     /* Cinza Escuro — 7:1 no branco (era #64748B, fraco p/ texto 10-11px) */
   --accent: #F1F5F9;
   --accent-foreground: #0B1220;
   --destructive: #EF4444;          /* Sistema · Error */
@@ -113,27 +113,30 @@
   --ring: rgba(25, 199, 203, 0.45);  /* Bright Cyan */
 
   /* Brand · LavSync oficial */
+  /* No claro, os accents são usados como TEXTO sobre branco — precisam de
+     contraste AA (>=4.5:1). O dark mantém os tons vibrantes do brandbook;
+     aqui usamos a rampa escura da MESMA família teal/cyan. */
   --brand-deep: #01385B;           /* Deep Ocean Blue */
   --brand-blue: #065A76;           /* Ocean Blue */
-  --brand-teal: #0F859A;           /* Teal Sync */
-  --brand-aqua: #0FABB7;           /* Aqua Flow */
-  --brand-cyan: #19C7CB;           /* Bright Cyan — destaque */
-  --brand-ice:  #73D8D8;           /* Soft Ice */
+  --brand-teal: #0C6B7C;           /* Teal Sync escurecido (5.5:1) — era #0F859A (4.3) */
+  --brand-aqua: #087F8C;           /* Aqua legível (4.6:1) — era #0FABB7 (2.6) */
+  --brand-cyan: #0B7285;           /* Cyan texto (5.6:1) — era #19C7CB (1.9, ilegível) */
+  --brand-ice:  #2E8F8F;           /* Ice legível — era #73D8D8 (1.5) */
   --brand-purple: #065A76;         /* Alias compat = Ocean Blue */
-  --brand-violet: #0FABB7;         /* Alias compat = Aqua Flow */
+  --brand-violet: #087F8C;         /* Alias compat = Aqua legível */
 
-  /* Sistema */
-  --success: #22C55E;
-  --warning: #F59E0B;
-  --danger:  #EF4444;
-  --info:    #3B82F6;
+  /* Sistema — tons -600/-700 p/ texto sobre branco (AA) */
+  --success: #15803D;              /* era #22C55E (2.3:1) */
+  --warning: #B45309;              /* era #F59E0B (2.2:1) */
+  --danger:  #DC2626;              /* era #EF4444 (3.8:1) */
+  --info:    #2563EB;              /* era #3B82F6 (3.7:1) */
 
-  /* Charts (gradiente oficial) */
-  --chart-1: #19C7CB;              /* Bright Cyan */
+  /* Charts — linhas visíveis sobre branco, mesma família da marca */
+  --chart-1: #0B7285;              /* Cyan escuro */
   --chart-2: #0F859A;              /* Teal Sync */
   --chart-3: #01385B;              /* Deep Ocean */
-  --chart-4: #73D8D8;              /* Soft Ice */
-  --chart-5: #0FABB7;              /* Aqua Flow */
+  --chart-4: #0FABB7;              /* Aqua Flow (era Soft Ice #73D8D8, sumia) */
+  --chart-5: #065A76;              /* Ocean Blue */
 
   --radius: 0.75rem;
 

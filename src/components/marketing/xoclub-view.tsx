@@ -367,7 +367,7 @@ function SaldosView({
                                 "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-smooth",
                                 enviados.has(s.cliente_id)
                                   ? "bg-secondary text-muted-foreground hover:text-foreground"
-                                  : "bg-[#25D366]/15 text-[#1faa52] hover:bg-[#25D366]/25",
+                                  : "bg-[#25D366]/15 text-[#128a44] hover:bg-[#25D366]/25",
                               )}>
                               <MessageCircle className="w-3.5 h-3.5" /> Conversar
                             </button>
