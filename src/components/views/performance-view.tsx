@@ -125,7 +125,7 @@ export function PerformanceView({
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] h-full gap-4">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={pagamentos} dataKey="valor" nameKey="label" innerRadius={56} outerRadius={100} paddingAngle={2} strokeWidth={0}>
+                    <Pie data={pagamentos} dataKey="valor" nameKey="label" innerRadius="50%" outerRadius="90%" paddingAngle={2} strokeWidth={0}>
                       {pagamentos.map((s) => <Cell key={s.key} fill={s.color} />)}
                     </Pie>
                     <Tooltip

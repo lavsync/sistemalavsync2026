@@ -146,8 +146,8 @@ export function ResultadosView({ dre, monthly }: ResultadosViewProps) {
                 data={costBreakdown}
                 dataKey="valor"
                 nameKey="categoria"
-                innerRadius={48}
-                outerRadius={80}
+                innerRadius="54%"
+                outerRadius="90%"
                 paddingAngle={2}
                 strokeWidth={0}
               >

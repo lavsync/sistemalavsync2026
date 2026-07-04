@@ -196,8 +196,8 @@ export function ClientesView({
                     data={segmentos}
                     dataKey="count"
                     nameKey="segment"
-                    innerRadius={48}
-                    outerRadius={96}
+                    innerRadius="45%"
+                    outerRadius="90%"
                     paddingAngle={2}
                     strokeWidth={0}
                   >

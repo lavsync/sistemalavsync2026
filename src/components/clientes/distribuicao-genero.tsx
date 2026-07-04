@@ -55,8 +55,8 @@ export function DistribuicaoGenero({ slices }: { slices: GeneroSlice[] }) {
                 nameKey="label"
                 cx="50%"
                 cy="50%"
-                innerRadius={62}
-                outerRadius={100}
+                innerRadius="56%"
+                outerRadius="90%"
                 paddingAngle={2}
                 strokeWidth={0}
                 onMouseEnter={(d) => {

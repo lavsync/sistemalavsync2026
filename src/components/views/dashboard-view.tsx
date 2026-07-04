@@ -240,7 +240,7 @@ export function DashboardView({
               <div className="flex items-center justify-center pt-4">
                 <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie data={split} innerRadius={55} outerRadius={85} paddingAngle={2}
+                    <Pie data={split} innerRadius="58%" outerRadius="90%" paddingAngle={2}
                       dataKey="value" stroke="var(--background)" strokeWidth={2}>
                       {split.map((s, i) => <Cell key={i} fill={s.color} />)}
                     </Pie>
