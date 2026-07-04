@@ -66,7 +66,9 @@ export function PainelAoVivoView({
   return (
     <div className="px-4 md:px-6 lg:px-8 py-5 space-y-5">
       {/* ===== HEADER COM PILL "AO VIVO" ===== */}
-      <div className="rounded-2xl border border-brand-cyan/20 bg-gradient-to-br from-brand-deep via-card to-card p-5 lg:p-6">
+      {/* fundo SEMPRE escuro (todo o texto interno é branco) — o antigo
+          "via-card" virava branco no tema claro e apagava o conteúdo */}
+      <div className="rounded-2xl border border-brand-cyan/20 bg-gradient-to-br from-[#01385B] via-[#06456A] to-[#0F859A] p-5 lg:p-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2">

@@ -56,7 +56,7 @@ function criarReconhecimento(opts?: { continuo?: boolean; parcial?: boolean }): 
 }
 
 // ─── Componente ─────────────────────────────────────────────────────────────
-export function ClockChat() {
+export function ClockChat({ embutido = false }: { embutido?: boolean }) {
   const [msgs, setMsgs] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState("");
   const [pensando, setPensando] = React.useState(false);
@@ -209,7 +209,13 @@ export function ClockChat() {
   }
 
   return (
-    <div className="rounded-2xl border border-brand-cyan/30 bg-card overflow-hidden flex flex-col" style={{ height: 580 }}>
+    <div
+      className={cn(
+        "bg-card overflow-hidden flex flex-col",
+        embutido ? "h-full min-h-0" : "rounded-2xl border border-brand-cyan/30",
+      )}
+      style={embutido ? undefined : { height: 580 }}
+    >
       {/* Header */}
       <div className="px-5 py-3.5 border-b border-border bg-gradient-to-r from-brand-cyan/10 to-brand-blue/10 flex items-center gap-3">
         <div className={cn(
