@@ -157,7 +157,7 @@ export function MarketingView({
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card">
           <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
           <select value={filtroUnidade} onChange={(e) => setFiltroUnidade(e.target.value)}
-            className="form-input h-7 py-0 text-[12px]">
+            className="form-input w-auto h-8 py-0 text-[12px]">
             <option value="todas">Todas unidades</option>
             {unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
           </select>

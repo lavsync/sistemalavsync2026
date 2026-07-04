@@ -197,7 +197,7 @@ export function ClubeView({
                 url.searchParams.set("mes_aplic", e.target.value);
                 window.location.href = url.toString();
               }}
-              className="form-input text-[12px] h-8 py-0"
+              className="form-input w-auto h-9 py-0 text-[12px]"
             >
               {mesesDisponiveis.length === 0 && <option value={mesAplicacao}>{nomeDoMes(mesAplicacao)}</option>}
               {mesesDisponiveis.map((m) => (
@@ -379,7 +379,7 @@ export function ClubeView({
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card">
           <Filter className="w-3.5 h-3.5 text-muted-foreground" />
           <select value={filtroNivel} onChange={(e) => setFiltroNivel(e.target.value as NivelClube | "todos")}
-            className="form-input h-7 py-0 text-[12px]">
+            className="form-input w-auto h-8 py-0 text-[12px]">
             <option value="todos">Todos os níveis ({resumo.total})</option>
             {NIVEIS.filter((n) => n.key !== "nao_classificado").map((n) => (
               <option key={n.key} value={n.key}>{n.label} ({resumo.porNivel[n.key]})</option>
@@ -389,7 +389,7 @@ export function ClubeView({
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card">
           <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
           <select value={filtroUnidadeMembros} onChange={(e) => setFiltroUnidadeMembros(e.target.value)}
-            className="form-input h-7 py-0 text-[12px]">
+            className="form-input w-auto h-8 py-0 text-[12px]">
             <option value="todas">Todas as unidades</option>
             {unidades.map((u) => {
               const qtd = classificacoes.filter((c) => c.unidade_id === u.id).length;
