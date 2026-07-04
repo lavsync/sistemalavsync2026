@@ -46,7 +46,7 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
     resumoClube(selecao.ids, mesAplic),
     listarMesesDisponiveis(),
     listarTemplates(),
-    getSituacaoClientes(selecao.ids, mesRef),
+    getSituacaoClientes(selecao.ids, mesAplic),
     getResumoXoClub(selecao.ids),
     getSaldosClientes(selecao.ids, { limit: 500 }),
     getProdutos(),

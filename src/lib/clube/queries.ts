@@ -143,12 +143,17 @@ export type SituacaoCliente = {
   telefone: string | null;
   unidade_id: string;
   unidade_nome: string;
+  // ── NÍVEL VIGENTE no mês selecionado (conquistado no mês anterior) ──
+  nivel_vigente: import("./niveis").NivelClube | null;  // null = sem desconto este mês
+  desconto_vigente: number;
+  ciclos_ref: number;            // ciclos do mês de referência (base da mensagem)
+  // ── CONTAGEM NOVA do mês atual — zera no dia 1º ──
   ciclos: number;
   ciclos_lavagem: number;
   ciclos_secagem: number;
   faturamento: number;
-  nivel: import("./niveis").NivelClube;
-  desconto_pct: number;
+  nivel_projetado: import("./niveis").NivelClube;  // o que a contagem atual garante pro mês seguinte
+  desconto_projetado: number;
   proximo_nivel: import("./niveis").NivelClube | null;
   ciclos_faltam: number;
   pontos: number;
@@ -169,18 +174,29 @@ import { agregarCompetencia } from "./engine";
 
 export async function getSituacaoClientes(
   unidadeIds: string[],
-  mesRefIso: string,    // YYYY-MM-01
+  mesAplicacao: string,    // YYYY-MM-01 — o MÊS ATUAL (de aplicação do desconto)
 ): Promise<SituacaoUnidade[]> {
   if (unidadeIds.length === 0) return [];
   const sb = await createClient();
 
-  // MOTOR ÚNICO (engine.ts) — mesma agregação da classificação persistida:
-  // janela BR, paginado, ciclos do cliente somando todas as unidades,
-  // cliente listado na sua unidade PRINCIPAL. Cards e lista sempre batem.
-  const { porCliente } = await agregarCompetencia(sb, mesRefIso);
+  // Modelo do programa: ao virar o mês, o nível conquistado (mês anterior)
+  // fica VIGENTE e a contagem de ciclos ZERA — nova corrida começa no dia 1º.
+  // Aqui juntamos as duas pontas:
+  //   vigente  = clube_classificacoes do mes_aplicacao (persistido)
+  //   contagem = agregação AO VIVO do próprio mes_aplicacao (motor único)
+  const { porCliente } = await agregarCompetencia(sb, mesAplicacao);
 
-  // Dados dos clientes (nome/telefone/cpf) + pontos — em batches
-  const clienteIds = [...porCliente.keys()];
+  type ClasseRow = { cliente_id: string; unidade_id: string; nivel: string; desconto_pct: number | string; ciclos_mes: number };
+  const vigentes = await paginarTodos<ClasseRow>((r) =>
+    sb.from("clube_classificacoes")
+      .select("cliente_id, unidade_id, nivel, desconto_pct, ciclos_mes")
+      .eq("mes_aplicacao", mesAplicacao)
+      .range(r.from, r.to),
+  );
+  const vigenteMap = new Map(vigentes.map((v) => [v.cliente_id, v]));
+
+  // Universo = quem tem nível vigente (mesmo sem uso ainda) ∪ quem já usou no mês
+  const clienteIds = [...new Set([...porCliente.keys(), ...vigenteMap.keys()])];
   type Cli = { id: string; nome: string; cpf: string; telefone: string | null };
   const clientesMap = new Map<string, Cli>();
   const pontosMap = new Map<string, number>();
@@ -217,33 +233,42 @@ export async function getSituacaoClientes(
     });
   }
 
-  for (const b of porCliente.values()) {
-    const unid = porUnidade.get(b.unidade_principal);
-    if (!unid) continue; // unidade principal fora da seleção
-    const cli = clientesMap.get(b.cliente_id);
-    const nivelAtual = classificar(b.ciclos);
-    const prox = proximoNivel(b.ciclos);
+  for (const cid of clienteIds) {
+    const b = porCliente.get(cid);   // uso no mês atual (pode não existir ainda)
+    const v = vigenteMap.get(cid);   // nível vigente (pode não existir)
+    const unidadeDoCliente = b?.unidade_principal ?? v?.unidade_id ?? "";
+    const unid = porUnidade.get(unidadeDoCliente);
+    if (!unid) continue; // fora da seleção
+    const cli = clientesMap.get(cid);
+    const ciclosAtuais = b?.ciclos ?? 0;
+    const nivelProj = classificar(ciclosAtuais);
+    const prox = proximoNivel(ciclosAtuais);
+    const nivelVigente = (v?.nivel ?? null) as SituacaoCliente["nivel_vigente"];
 
     unid.clientes.push({
-      cliente_id: b.cliente_id,
+      cliente_id: cid,
       nome: cli?.nome ?? "—",
       cpf: cli?.cpf ?? "",
       telefone: cli?.telefone ?? null,
       unidade_id: unid.unidade_id, unidade_nome: unid.unidade_nome,
-      ciclos: b.ciclos,
-      ciclos_lavagem: b.ciclos_lavagem,
-      ciclos_secagem: b.ciclos_secagem,
-      faturamento: b.faturamento,
-      nivel: nivelAtual.key,
-      desconto_pct: nivelAtual.descontoPct,
+      nivel_vigente: nivelVigente,
+      desconto_vigente: v ? Number(v.desconto_pct) : 0,
+      ciclos_ref: v?.ciclos_mes ?? 0,
+      ciclos: ciclosAtuais,
+      ciclos_lavagem: b?.ciclos_lavagem ?? 0,
+      ciclos_secagem: b?.ciclos_secagem ?? 0,
+      faturamento: b?.faturamento ?? 0,
+      nivel_projetado: nivelProj.key,
+      desconto_projetado: nivelProj.descontoPct,
       proximo_nivel: prox.proximo?.key ?? null,
       ciclos_faltam: prox.faltam,
-      pontos: pontosMap.get(b.cliente_id) ?? 0,
+      pontos: pontosMap.get(cid) ?? 0,
     });
     unid.total_clientes += 1;
-    unid.total_ciclos += b.ciclos;
-    unid.faturamento_total += b.faturamento;
-    unid.por_nivel[nivelAtual.key] += 1;
+    unid.total_ciclos += ciclosAtuais;
+    unid.faturamento_total += b?.faturamento ?? 0;
+    // chips por nível = VIGENTE (bate com os cards da classificação)
+    unid.por_nivel[nivelVigente ?? "nao_classificado"] += 1;
   }
 
   // Ordena clientes do maior pro menor + arredonda total

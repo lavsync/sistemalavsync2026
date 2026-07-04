@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { NIVEIS, type NivelClube, labelDoNivel, corDoNivel } from "@/lib/clube/niveis";
+import { NIVEIS, type NivelClube, labelDoNivel, corDoNivel, proximoNivel } from "@/lib/clube/niveis";
 import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, SituacaoCliente } from "@/lib/clube/queries";
 import { classificarMes, gerarDisparosClube } from "@/lib/clube/actions";
 import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
@@ -407,26 +407,39 @@ function SituacaoPorUnidade({
   const [enviados, setEnviados] = React.useState<Set<string>>(new Set(enviosIniciais));
   const [soPendentes, setSoPendentes] = React.useState(false);
 
-  // Mensagem de qualificação do cliente: classificado → template do nível;
-  // abaixo de Bronze → template 'abaixo_bronze'. Ambos editáveis no banco.
+  // Mensagem de qualificação: com nível VIGENTE → template do nível (fala dos
+  // ciclos do mês de REFERÊNCIA que conquistaram o benefício); sem nível →
+  // 'abaixo_bronze' (incentivo com os números do mês de referência).
+  // A corrida atual ({faltam}/{proximo_nivel}) usa a CONTAGEM NOVA do mês.
   const mensagemDe = React.useCallback((c: SituacaoCliente): string | null => {
-    const tpl = c.nivel !== "nao_classificado"
-      ? templates.find((t) => t.tipo === "parabens_nivel" && t.nivel_alvo === c.nivel && t.ativo !== false)
+    const vigente = c.nivel_vigente;
+    const tpl = vigente
+      ? templates.find((t) => t.tipo === "parabens_nivel" && t.nivel_alvo === vigente && t.ativo !== false)
       : templates.find((t) => t.tipo === "abaixo_bronze" && t.ativo !== false);
     if (!tpl) return null;
-    const proxRegra = c.proximo_nivel ? NIVEIS.find((n) => n.key === c.proximo_nivel) : null;
+
+    // Corrida ATUAL (contagem nova) pro cliente vigente; pro abaixo de bronze,
+    // o "faltaram" da mensagem se refere ao mês de referência encerrado.
+    const proxAtual = c.proximo_nivel ? NIVEIS.find((n) => n.key === c.proximo_nivel) : null;
+    const proxRefCalc = proximoNivel(c.ciclos_ref);
+    const usarRef = !vigente;
+
     return renderMensagem(tpl.mensagem, {
       primeiro_nome: c.nome.split(" ")[0],
       nome: c.nome,
       cpf: c.cpf,
-      nivel: c.nivel === "nao_classificado" ? "—" : labelDoNivel(c.nivel).toUpperCase(),
-      ciclos: c.ciclos,
-      ciclos_palavra: c.ciclos === 1 ? "ciclo" : "ciclos",
-      desconto: c.desconto_pct,
+      nivel: vigente ? labelDoNivel(vigente).toUpperCase() : "—",
+      ciclos: c.ciclos_ref,
+      ciclos_palavra: c.ciclos_ref === 1 ? "ciclo" : "ciclos",
+      desconto: c.desconto_vigente,
       pontos: c.pontos,
-      faltam: c.ciclos_faltam,
-      proximo_nivel: proxRegra ? proxRegra.label.toUpperCase() : "TOPO",
-      desconto_proximo: proxRegra?.descontoPct ?? 0,
+      faltam: usarRef ? proxRefCalc.faltam : c.ciclos_faltam,
+      proximo_nivel: usarRef
+        ? (proxRefCalc.proximo ? proxRefCalc.proximo.label.toUpperCase() : "TOPO")
+        : (proxAtual ? proxAtual.label.toUpperCase() : "TOPO"),
+      desconto_proximo: usarRef
+        ? (proxRefCalc.proximo?.descontoPct ?? 0)
+        : (proxAtual?.descontoPct ?? 0),
       faltam_proximo: c.ciclos_faltam,
       mes_ref_nome: nomeDoMes(mesRefStr),
       mes_aplic_nome: nomeDoMes(mesAplicacao),
@@ -480,10 +493,11 @@ function SituacaoPorUnidade({
           <div>
             <div className="font-display font-bold text-[14px] inline-flex items-center gap-2">
               <Layers className="w-4 h-4 text-brand-cyan" />
-              Situação de todos os clientes · {nomeDoMes(mesRefStr)}
+              Situação de todos os clientes · {nomeDoMes(mesAplicacao)}
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              Foto ao vivo das vendas. Cada cliente mostra nível atual e quantos ciclos faltam pro próximo.
+              Nível vigente conquistado em {nomeDoMes(mesRefStr)} · a contagem de ciclos <strong>zerou no dia 1º</strong> e
+              a nova corrida define se o nível avança ou retrocede no fim de {nomeDoMes(mesAplicacao)}.
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -532,7 +546,7 @@ function SituacaoPorUnidade({
       {situacao.filter((u) => u.unidade_id === unidadeAberta).map((u) => {
         const buscaNorm = busca.trim().toLowerCase();
         const filtrados = u.clientes.filter((c) => {
-          if (filtroNivel !== "todos" && c.nivel !== filtroNivel) return false;
+          if (filtroNivel !== "todos" && (c.nivel_vigente ?? "nao_classificado") !== filtroNivel) return false;
           if (soPendentes && enviados.has(c.cliente_id)) return false;
           if (buscaNorm) {
             return c.nome.toLowerCase().includes(buscaNorm)
@@ -586,21 +600,22 @@ function SituacaoPorUnidade({
                   <tr className="text-[9px] uppercase tracking-wider text-muted-foreground">
                     <th className="text-left py-2 px-3 font-semibold w-12">#</th>
                     <th className="text-left py-2 px-3 font-semibold">Cliente</th>
-                    <th className="text-left py-2 px-3 font-semibold">Nível atual</th>
-                    <th className="text-right py-2 px-3 font-semibold">Ciclos</th>
+                    <th className="text-left py-2 px-3 font-semibold">Nível vigente (desconto do mês)</th>
+                    <th className="text-right py-2 px-3 font-semibold">Ciclos este mês</th>
                     <th className="text-right py-2 px-3 font-semibold">Lav/Sec</th>
-                    <th className="text-right py-2 px-3 font-semibold">Faturamento</th>
-                    <th className="text-center py-2 px-3 font-semibold">Desconto</th>
-                    <th className="text-left py-2 px-3 font-semibold">Próximo nível</th>
+                    <th className="text-right py-2 px-3 font-semibold">Fat. mês</th>
+                    <th className="text-left py-2 px-3 font-semibold">Projeção fim do mês</th>
                     <th className="text-left py-2 px-3 font-semibold">Mensagem do mês</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtrados.map((c, idx) => {
-                    const cor = corDoNivel(c.nivel);
-                    const IconNivel = NIVEL_ICON[c.nivel];
+                    const vig = c.nivel_vigente;
+                    const corVig = vig ? corDoNivel(vig) : "muted-foreground";
+                    const IconVig = NIVEL_ICON[vig ?? "nao_classificado"];
+                    const corProj = corDoNivel(c.nivel_projetado);
+                    const IconProj = NIVEL_ICON[c.nivel_projetado];
                     const ProxIcon = c.proximo_nivel ? NIVEL_ICON[c.proximo_nivel] : null;
-                    const corProx = c.proximo_nivel ? corDoNivel(c.proximo_nivel) : "muted-foreground";
                     return (
                       <motion.tr key={c.cliente_id}
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -612,37 +627,42 @@ function SituacaoPorUnidade({
                           <div className="text-[10px] text-muted-foreground font-mono">{c.cpf}</div>
                         </td>
                         <td className="py-2 px-3">
-                          <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
-                            `bg-${cor}/15 text-${cor}`)}>
-                            <IconNivel className="w-3 h-3" />
-                            {labelDoNivel(c.nivel)}
-                          </span>
+                          {vig ? (
+                            <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
+                              `bg-${corVig}/15 text-${corVig}`)}>
+                              <IconVig className="w-3 h-3" />
+                              {labelDoNivel(vig)} · {c.desconto_vigente}% OFF
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground/60">sem desconto este mês</span>
+                          )}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono font-bold">{c.ciclos}</td>
+                        <td className="py-2 px-3 text-right">
+                          <span className="font-mono font-bold">{c.ciclos}</span>
+                          {c.ciclos === 0 && <span className="ml-1 text-[9px] text-muted-foreground/60">nova contagem</span>}
+                        </td>
                         <td className="py-2 px-3 text-right font-mono text-[10px] text-muted-foreground">
                           {c.ciclos_lavagem}/{c.ciclos_secagem}
                         </td>
                         <td className="py-2 px-3 text-right font-mono">{fmtBRL(c.faturamento)}</td>
-                        <td className="py-2 px-3 text-center">
-                          {c.desconto_pct > 0
-                            ? <span className={cn("font-bold text-[12px]", `text-${cor}`)}>{c.desconto_pct}%</span>
-                            : <span className="text-muted-foreground/40">—</span>}
-                        </td>
                         <td className="py-2 px-3">
-                          {c.proximo_nivel && ProxIcon ? (
-                            <span className="inline-flex items-center gap-1.5 text-[11px]">
-                              <ProxIcon className={cn("w-3 h-3", `text-${corProx}`)} />
-                              <span className={cn("font-semibold", `text-${corProx}`)}>{labelDoNivel(c.proximo_nivel)}</span>
-                              <span className="text-muted-foreground">·</span>
-                              <span className="font-mono font-bold text-warning">
-                                faltam {c.ciclos_faltam} {c.ciclos_faltam === 1 ? "ciclo" : "ciclos"}
+                          <div className="flex flex-col gap-0.5">
+                            <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider",
+                              `text-${corProj}`)}>
+                              <IconProj className="w-3 h-3" />
+                              {c.nivel_projetado === "nao_classificado" ? "Sem nível" : labelDoNivel(c.nivel_projetado)}
+                              {c.desconto_projetado > 0 && <span>· {c.desconto_projetado}%</span>}
+                            </span>
+                            {c.proximo_nivel && ProxIcon ? (
+                              <span className="text-[10px] text-muted-foreground">
+                                faltam <span className="font-mono font-bold text-warning">{c.ciclos_faltam}</span> p/ {labelDoNivel(c.proximo_nivel)}
                               </span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[11px] text-success font-semibold">
-                              <Gem className="w-3 h-3" /> Topo do programa
-                            </span>
-                          )}
+                            ) : (
+                              <span className="text-[10px] text-success font-semibold inline-flex items-center gap-1">
+                                <Gem className="w-2.5 h-2.5" /> Topo do programa
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2 px-3">
                           {c.telefone && mensagemDe(c) ? (
