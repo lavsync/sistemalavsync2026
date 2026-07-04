@@ -6,8 +6,8 @@
 // dedupe_key da fila garante 1 mensagem por cliente/competência.
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { paginarTodos } from "@/lib/supabase/pagination";
-import { classificar, proximoNivel, nomeMes, labelDoNivel, NIVEIS, type NivelClube } from "@/lib/clube/niveis";
+import { proximoNivel, nomeMes, labelDoNivel, NIVEIS, type NivelClube } from "@/lib/clube/niveis";
+import { classificarCompetencia } from "@/lib/clube/engine";
 import { enfileirar, type ItemFila } from "@/lib/clock-relacionamento/fila";
 import { carregarOptOuts, suprimido } from "@/lib/clock-relacionamento/optout";
 import { nowBR } from "@/lib/timezone-br";
@@ -58,77 +58,24 @@ export async function fecharMesAnterior(opts?: { force?: boolean }): Promise<Res
   // pro plano Hobby, onde o cron pode falhar num dia)
   if (agora.dia !== 1 && jaFechado) return { executado: false, motivo: "não é dia 1", mesRef };
 
-  // ── 1) Agregar vendas da competência (paginado — pode passar de 1000) ──
-  const ini = `${mesRef}T00:00:00-03:00`;
-  const fimData = new Date(refAno, refMes, 0); // último dia do mês ref
-  const fim = `${refAno}-${String(refMes).padStart(2, "0")}-${String(fimData.getDate()).padStart(2, "0")}T23:59:59.999-03:00`;
-
-  type V = { cliente_id: string | null; unidade_id: string; valor: number | string; tipo_servico: string | null; quantidade_ciclos: number | string | null };
-  const vendas = await paginarTodos<V>((r) =>
-    sb.from("vendas")
-      .select("cliente_id, unidade_id, valor, tipo_servico, quantidade_ciclos")
-      .eq("situacao", "sucesso")
-      .gte("data_venda", ini)
-      .lte("data_venda", fim)
-      .not("cliente_id", "is", null)
-      .range(r.from, r.to),
-  );
-
-  type Agg = { ciclos: number; lav: number; sec: number; fat: number; unidade_id: string };
-  const agg = new Map<string, Agg>();
-  for (const v of vendas) {
-    if (!v.cliente_id) continue;
-    const ciclos = Number(v.quantidade_ciclos) || 1;
-    const cur = agg.get(v.cliente_id) ?? { ciclos: 0, lav: 0, sec: 0, fat: 0, unidade_id: v.unidade_id };
-    cur.ciclos += ciclos;
-    cur.fat += Number(v.valor) || 0;
-    if (v.tipo_servico === "lavagem") cur.lav += ciclos;
-    else if (v.tipo_servico === "secagem") cur.sec += ciclos;
-    agg.set(v.cliente_id, cur);
+  // ── 1-3) Classificação + pontos pelo MOTOR ÚNICO (lib/clube/engine.ts) ──
+  // Mesma lógica da action da UI — nunca reimplementar aqui.
+  let resultado: Awaited<ReturnType<typeof classificarCompetencia>>;
+  try {
+    resultado = await classificarCompetencia(sb, tenantId, mesRef);
+  } catch (e) {
+    return { executado: false, motivo: e instanceof Error ? e.message : String(e), mesRef };
   }
+  const porNivel = resultado.porNivel;
 
-  // ── 2) Upsert das classificações ──
-  const porNivel: Record<string, number> = { bronze: 0, prata: 0, ouro: 0, diamante: 0 };
-  const batch: Array<Record<string, unknown>> = [];
-  for (const [cliente_id, a] of agg.entries()) {
-    const nivel = classificar(a.ciclos);
-    if (nivel.key === "nao_classificado") continue;
-    batch.push({
-      tenant_id: tenantId, unidade_id: a.unidade_id, cliente_id,
-      mes_ref: mesRef, mes_aplicacao: mesAplic,
-      ciclos_mes: a.ciclos, ciclos_lavagem: a.lav, ciclos_secagem: a.sec,
-      faturamento_mes: Math.round(a.fat * 100) / 100,
-      nivel: nivel.key, desconto_pct: nivel.descontoPct,
-    });
-    porNivel[nivel.key] += 1;
-  }
-
-  await sb.from("clube_classificacoes").delete().eq("mes_ref", mesRef);
-  for (let i = 0; i < batch.length; i += 200) {
-    const { error } = await sb.from("clube_classificacoes").insert(batch.slice(i, i + 200));
-    if (error) return { executado: false, motivo: `insert classificações: ${error.message}`, mesRef };
-  }
-
-  // ── 3) Pontos (1 ciclo = 1 ponto; recalcula total pra idempotência) ──
-  for (const [cliente_id, a] of agg.entries()) {
-    const { data: existente } = await sb
-      .from("clube_pontos").select("saldo_pontos, total_acumulado")
-      .eq("cliente_id", cliente_id).maybeSingle();
-    if (existente) {
-      const { data: todas } = await sb
-        .from("clube_classificacoes").select("ciclos_mes").eq("cliente_id", cliente_id);
-      const total = ((todas ?? []) as Array<{ ciclos_mes: number }>).reduce((s, c) => s + c.ciclos_mes, 0);
-      const ex = existente as { saldo_pontos: number; total_acumulado: number };
-      await sb.from("clube_pontos").update({
-        total_acumulado: total,
-        saldo_pontos: Math.max(0, total - (ex.total_acumulado - ex.saldo_pontos)),
-      }).eq("cliente_id", cliente_id);
-    } else {
-      await sb.from("clube_pontos").insert({
-        tenant_id: tenantId, cliente_id, saldo_pontos: a.ciclos, total_acumulado: a.ciclos,
-      });
-    }
-  }
+  // Linhas persistidas (pra renderizar as mensagens de nível)
+  type ClassRow = { cliente_id: string; unidade_id: string; ciclos_mes: number; nivel: string; desconto_pct: number };
+  const { data: classData } = await sb
+    .from("clube_classificacoes")
+    .select("cliente_id, unidade_id, ciclos_mes, nivel, desconto_pct")
+    .eq("mes_ref", mesRef)
+    .limit(5000);
+  const batch = (classData ?? []) as ClassRow[];
 
   // ── 4) Mensagem de nível (dia 1) via msg_fila ──
   let enfileiradas = 0;

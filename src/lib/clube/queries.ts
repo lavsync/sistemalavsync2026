@@ -164,6 +164,7 @@ export type SituacaoUnidade = {
 };
 
 import { classificar, proximoNivel } from "./niveis";
+import { agregarCompetencia } from "./engine";
 
 export async function getSituacaoClientes(
   unidadeIds: string[],
@@ -172,69 +173,22 @@ export async function getSituacaoClientes(
   if (unidadeIds.length === 0) return [];
   const sb = await createClient();
 
-  // Janela do mês ref
-  const d = new Date(mesRefIso + "T12:00:00");
-  const ini = new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1)).toISOString();
-  const fim = new Date(Date.UTC(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999)).toISOString();
+  // MOTOR ÚNICO (engine.ts) — mesma agregação da classificação persistida:
+  // janela BR, paginado, ciclos do cliente somando todas as unidades,
+  // cliente listado na sua unidade PRINCIPAL. Cards e lista sempre batem.
+  const { porCliente } = await agregarCompetencia(sb, mesRefIso);
 
-  // 1. Vendas do mês das unidades selecionadas
-  type Venda = {
-    unidade_id: string;
-    cliente_id: string | null;
-    cpf: string | null;
-    tipo_servico: string;
-    quantidade_ciclos: number | string | null;
-    valor: number | string;
-  };
-  const vendas = await paginarTodos<Venda>((r) =>
-    sb.from("vendas")
-      .select("unidade_id, cliente_id, cpf, tipo_servico, quantidade_ciclos, valor")
-      .in("unidade_id", unidadeIds)
-      .eq("situacao", "sucesso")
-      .gte("data_venda", ini)
-      .lte("data_venda", fim)
-      .range(r.from, r.to),
-  );
-
-  // 2. Agrupar por (cliente_id ou cpf como fallback) + unidade
-  type Agg = { ciclos: number; lav: number; sec: number; fat: number; unidade_id: string; cliente_id: string | null; cpf: string | null };
-  const buckets = new Map<string, Agg>();
-  for (const v of vendas) {
-    const chaveCliente = v.cliente_id ?? (v.cpf ? `cpf:${v.cpf.replace(/\D/g, "")}` : null);
-    if (!chaveCliente) continue;
-    const k = `${v.unidade_id}::${chaveCliente}`;
-    const ciclos = Math.max(1, Number(v.quantidade_ciclos) || 1);
-    const valor = Number(v.valor) || 0;
-    const cur = buckets.get(k) ?? {
-      ciclos: 0, lav: 0, sec: 0, fat: 0,
-      unidade_id: v.unidade_id, cliente_id: v.cliente_id, cpf: v.cpf,
-    };
-    cur.ciclos += ciclos;
-    cur.fat += valor;
-    if (v.tipo_servico === "lavagem") cur.lav += ciclos;
-    else if (v.tipo_servico === "secagem") cur.sec += ciclos;
-    else if (v.tipo_servico === "combo") {
-      cur.lav += Math.ceil(ciclos / 2);
-      cur.sec += Math.floor(ciclos / 2);
-    }
-    buckets.set(k, cur);
-  }
-
-  // 3. Buscar dados de cada cliente (nome/telefone/cpf) — em batches
-  const clienteIds = Array.from(new Set(Array.from(buckets.values()).map((b) => b.cliente_id).filter(Boolean))) as string[];
+  // Dados dos clientes (nome/telefone/cpf) — em batches
+  const clienteIds = [...porCliente.keys()];
   type Cli = { id: string; nome: string; cpf: string; telefone: string | null };
   const clientesMap = new Map<string, Cli>();
-  if (clienteIds.length > 0) {
-    for (let i = 0; i < clienteIds.length; i += 200) {
-      const slice = clienteIds.slice(i, i + 200);
-      const { data } = await sb.from("clientes")
-        .select("id, nome, cpf, telefone")
-        .in("id", slice);
-      for (const c of (data ?? []) as Cli[]) clientesMap.set(c.id, c);
-    }
+  for (let i = 0; i < clienteIds.length; i += 200) {
+    const { data } = await sb.from("clientes")
+      .select("id, nome, cpf, telefone")
+      .in("id", clienteIds.slice(i, i + 200));
+    for (const c of (data ?? []) as Cli[]) clientesMap.set(c.id, c);
   }
 
-  // 4. Resolver nomes das unidades
   const { data: undData } = await sb.from("unidades")
     .select("id, nome")
     .in("id", unidadeIds);
@@ -243,7 +197,6 @@ export async function getSituacaoClientes(
     undMap.set(u.id, u.nome);
   }
 
-  // 5. Montar resultado por unidade
   const porUnidade = new Map<string, SituacaoUnidade>();
   for (const uid of unidadeIds) {
     porUnidade.set(uid, {
@@ -257,24 +210,23 @@ export async function getSituacaoClientes(
     });
   }
 
-  for (const b of buckets.values()) {
-    const unid = porUnidade.get(b.unidade_id);
-    if (!unid) continue;
-    const cli = b.cliente_id ? clientesMap.get(b.cliente_id) : null;
-    const nome = cli?.nome ?? (b.cpf ? "—" : "Cliente sem cadastro");
-    const cpf = cli?.cpf ?? (b.cpf ?? "");
-    const telefone = cli?.telefone ?? null;
+  for (const b of porCliente.values()) {
+    const unid = porUnidade.get(b.unidade_principal);
+    if (!unid) continue; // unidade principal fora da seleção
+    const cli = clientesMap.get(b.cliente_id);
     const nivelAtual = classificar(b.ciclos);
     const prox = proximoNivel(b.ciclos);
 
     unid.clientes.push({
-      cliente_id: b.cliente_id ?? `anon:${b.cpf}`,
-      nome, cpf, telefone,
+      cliente_id: b.cliente_id,
+      nome: cli?.nome ?? "—",
+      cpf: cli?.cpf ?? "",
+      telefone: cli?.telefone ?? null,
       unidade_id: unid.unidade_id, unidade_nome: unid.unidade_nome,
       ciclos: b.ciclos,
-      ciclos_lavagem: b.lav,
-      ciclos_secagem: b.sec,
-      faturamento: Math.round(b.fat * 100) / 100,
+      ciclos_lavagem: b.ciclos_lavagem,
+      ciclos_secagem: b.ciclos_secagem,
+      faturamento: b.faturamento,
       nivel: nivelAtual.key,
       desconto_pct: nivelAtual.descontoPct,
       proximo_nivel: prox.proximo?.key ?? null,
@@ -282,7 +234,7 @@ export async function getSituacaoClientes(
     });
     unid.total_clientes += 1;
     unid.total_ciclos += b.ciclos;
-    unid.faturamento_total += b.fat;
+    unid.faturamento_total += b.faturamento;
     unid.por_nivel[nivelAtual.key] += 1;
   }
 

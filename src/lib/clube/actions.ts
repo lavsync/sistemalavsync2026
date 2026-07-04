@@ -1,7 +1,9 @@
 "use server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
-import { classificar, proximoNivel, nomeMes, proximoMes, labelDoNivel } from "./niveis";
+import { proximoNivel, nomeMes, labelDoNivel } from "./niveis";
+import { classificarCompetencia } from "./engine";
 
 async function pegarTenant() {
   const sb = await createClient();
@@ -19,108 +21,16 @@ export async function classificarMes(mesRef: string): Promise<{
   classificados: number;
   porNivel: Record<string, number>;
 }> {
-  const sb = await createClient();
+  // pegarTenant usa a sessão do usuário (RLS) — funciona como gate de auth;
+  // a escrita em lote roda com service_role pelo MOTOR ÚNICO (engine.ts),
+  // o mesmo do fechamento automático do cron. Nunca reimplementar aqui.
   const tenant_id = await pegarTenant();
   if (!tenant_id) throw new Error("Tenant não encontrado");
 
-  const ini = new Date(mesRef + "T00:00:00");
-  const fim = new Date(ini.getFullYear(), ini.getMonth() + 1, 0, 23, 59, 59, 999);
-  const mesAplicDate = proximoMes(ini);
-  const mesAplicStr = mesAplicDate.toISOString().slice(0, 10);
-
-  // Agregar vendas por cliente_id no mês_ref
-  const { data: vendas, error } = await sb
-    .from("vendas")
-    .select("cliente_id, unidade_id, valor, tipo_servico, quantidade_ciclos")
-    .eq("situacao", "sucesso")
-    .gte("data_venda", ini.toISOString())
-    .lte("data_venda", fim.toISOString())
-    .not("cliente_id", "is", null);
-  if (error) throw error;
-
-  type V = { cliente_id: string; unidade_id: string; valor: number | string; tipo_servico: string | null; quantidade_ciclos: number | string | null };
-  const rows = (vendas ?? []) as V[];
-
-  // Agregar
-  type Agg = { ciclos: number; lav: number; sec: number; fat: number; unidade_id: string };
-  const agg = new Map<string, Agg>();
-  for (const v of rows) {
-    if (!v.cliente_id) continue;
-    const ciclos = Number(v.quantidade_ciclos) || 1;
-    const fat = Number(v.valor) || 0;
-    const cur = agg.get(v.cliente_id) ?? { ciclos: 0, lav: 0, sec: 0, fat: 0, unidade_id: v.unidade_id };
-    cur.ciclos += ciclos;
-    cur.fat += fat;
-    if (v.tipo_servico === "lavagem") cur.lav += ciclos;
-    else if (v.tipo_servico === "secagem") cur.sec += ciclos;
-    agg.set(v.cliente_id, cur);
-  }
-
-  // Inserir/atualizar classificações (upsert por cliente_id+mes_ref)
-  let classificados = 0;
-  const porNivel: Record<string, number> = { bronze: 0, prata: 0, ouro: 0, diamante: 0 };
-  const batch: Array<Record<string, unknown>> = [];
-
-  for (const [cliente_id, a] of agg.entries()) {
-    const nivel = classificar(a.ciclos);
-    if (nivel.key === "nao_classificado") continue; // < 8 ciclos não entra
-    batch.push({
-      tenant_id,
-      unidade_id: a.unidade_id,
-      cliente_id,
-      mes_ref: mesRef,
-      mes_aplicacao: mesAplicStr,
-      ciclos_mes: a.ciclos,
-      ciclos_lavagem: a.lav,
-      ciclos_secagem: a.sec,
-      faturamento_mes: Math.round(a.fat * 100) / 100,
-      nivel: nivel.key,
-      desconto_pct: nivel.descontoPct,
-    });
-    classificados++;
-    porNivel[nivel.key] += 1;
-  }
-
-  // Apagar classificações anteriores deste mes_ref (re-classificação completa)
-  await sb.from("clube_classificacoes").delete().eq("mes_ref", mesRef);
-
-  // Inserir em lotes de 200
-  for (let i = 0; i < batch.length; i += 200) {
-    const slice = batch.slice(i, i + 200);
-    const { error: insErr } = await sb.from("clube_classificacoes").insert(slice);
-    if (insErr) throw insErr;
-  }
-
-  // Atualizar pontos acumulados (1 ciclo = 1 ponto)
-  for (const [cliente_id, a] of agg.entries()) {
-    const { data: existente } = await sb
-      .from("clube_pontos")
-      .select("saldo_pontos, total_acumulado")
-      .eq("cliente_id", cliente_id)
-      .maybeSingle();
-    if (existente) {
-      // Recalcula total a partir do zero pra ser idempotente
-      const { data: todasClass } = await sb
-        .from("clube_classificacoes")
-        .select("ciclos_mes")
-        .eq("cliente_id", cliente_id);
-      const totalCiclos = ((todasClass ?? []) as Array<{ ciclos_mes: number }>).reduce((s, c) => s + c.ciclos_mes, 0);
-      const exist = existente as { saldo_pontos: number; total_acumulado: number };
-      await sb.from("clube_pontos").update({
-        total_acumulado: totalCiclos,
-        saldo_pontos: Math.max(0, totalCiclos - (exist.total_acumulado - exist.saldo_pontos)),
-      }).eq("cliente_id", cliente_id);
-    } else {
-      await sb.from("clube_pontos").insert({
-        tenant_id, cliente_id,
-        saldo_pontos: a.ciclos,
-        total_acumulado: a.ciclos,
-      });
-    }
-  }
+  const r = await classificarCompetencia(createAdminClient(), tenant_id, mesRef);
 
   revalidatePath("/publicidade");
-  return { classificados, porNivel };
+  return { classificados: r.classificados, porNivel: r.porNivel };
 }
 
 /**
