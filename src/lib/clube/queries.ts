@@ -349,6 +349,7 @@ export type TemplateMensagem = {
   mensagem: string;
   ativo: boolean;
   ordem: number;
+  banner_url: string | null;
 };
 
 export async function listarTemplates(): Promise<TemplateMensagem[]> {

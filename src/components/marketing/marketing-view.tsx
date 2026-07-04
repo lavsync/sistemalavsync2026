@@ -60,7 +60,7 @@ export function MarketingView({
   clubeResumo, clubeClassificacoes, clubeMesAplicacao, clubeMesesDisponiveis, clubeTemplates,
   clubeSituacao, clubeSelecaoUnidades, clubeEnviosQualificacao, clubeAbaixoBronze,
   xoclubResumo, xoclubSaldos, xoclubProdutos, xoclubResgates, xoclubConfig,
-  xoclubTemplatePortal, xoclubEnviosPortal, xoclubMesAtual,
+  xoclubTemplatePortal, xoclubTemplatePortalBanner, xoclubEnviosPortal, xoclubMesAtual,
 }: {
   campanhas: Campanha[];
   unidades: Unidade[];
@@ -80,6 +80,7 @@ export function MarketingView({
   xoclubResgates: Resgate[];
   xoclubConfig: XoClubConfig | null;
   xoclubTemplatePortal: string | null;
+  xoclubTemplatePortalBanner: string | null;
   xoclubEnviosPortal: string[];
   xoclubMesAtual: string;
 }) {
@@ -232,6 +233,7 @@ export function MarketingView({
             config={xoclubConfig}
             unidades={unidades}
             templatePortal={xoclubTemplatePortal}
+            templatePortalBanner={xoclubTemplatePortalBanner}
             enviosPortal={xoclubEnviosPortal}
             mesAtual={xoclubMesAtual}
           />

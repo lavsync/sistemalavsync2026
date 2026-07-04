@@ -56,7 +56,9 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
     listarEnviosManuais(mesAtual, "xoclub"),
   ]);
   const abaixoBronze = await getAbaixoBronze(selecao.ids, mesRef);
-  const templatePortal = templates.find((t) => t.tipo === "xoclub_portal")?.mensagem ?? null;
+  const tplPortalRow = templates.find((t) => t.tipo === "xoclub_portal" && t.ativo);
+  const templatePortal = tplPortalRow?.mensagem ?? null;
+  const templatePortalBanner = tplPortalRow?.banner_url ?? null;
 
   return (
     <AppShell>
@@ -79,6 +81,7 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
         xoclubResgates={xoclubResgates}
         xoclubConfig={xoclubConfig}
         xoclubTemplatePortal={templatePortal}
+        xoclubTemplatePortalBanner={templatePortalBanner}
         xoclubEnviosPortal={enviosXoclub}
         xoclubMesAtual={mesAtual}
       />

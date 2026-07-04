@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
 import { renderMensagem, linkWhatsApp, LINK_PORTAL_CLIENTE } from "@/lib/clube/render-mensagem";
+import { BotaoCopiarBanner } from "./template-editor";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,7 +39,7 @@ const NIVEL_ICON_MAP: Record<NivelXoClub, React.ElementType> = {
 
 export function XoClubView({
   resumo, saldos, produtos, resgates, config, unidades,
-  templatePortal, enviosPortal, mesAtual,
+  templatePortal, templatePortalBanner, enviosPortal, mesAtual,
 }: {
   resumo: ResumoXoClub;
   saldos: SaldoCliente[];
@@ -47,6 +48,7 @@ export function XoClubView({
   config: XoClubConfig | null;
   unidades: Unidade[];
   templatePortal: string | null;
+  templatePortalBanner: string | null;
   enviosPortal: string[];
   mesAtual: string;
 }) {
@@ -88,7 +90,7 @@ export function XoClubView({
           <Dashboard resumo={resumo} />
         </Tabs.Content>
         <Tabs.Content value="saldos" className="outline-none mt-5">
-          <SaldosView saldos={saldos} templatePortal={templatePortal} enviosPortal={enviosPortal} mesAtual={mesAtual} />
+          <SaldosView saldos={saldos} templatePortal={templatePortal} templatePortalBanner={templatePortalBanner} enviosPortal={enviosPortal} mesAtual={mesAtual} />
         </Tabs.Content>
         <Tabs.Content value="store" className="outline-none mt-5">
           <StoreView produtos={produtos} saldos={saldos} />
@@ -221,10 +223,11 @@ function KPI({ label, valor, icon: Icon, tone }: { label: string; valor: number;
 // SALDOS
 // ────────────────────────────────────────────────────────────
 function SaldosView({
-  saldos, templatePortal, enviosPortal, mesAtual,
+  saldos, templatePortal, templatePortalBanner, enviosPortal, mesAtual,
 }: {
   saldos: SaldoCliente[];
   templatePortal: string | null;
+  templatePortalBanner: string | null;
   enviosPortal: string[];
   mesAtual: string;
 }) {
@@ -368,6 +371,7 @@ function SaldosView({
                               )}>
                               <MessageCircle className="w-3.5 h-3.5" /> Conversar
                             </button>
+                            {templatePortalBanner && <BotaoCopiarBanner url={templatePortalBanner} />}
                             <label
                               title="Cliente já recebeu a mensagem de pontos deste mês"
                               className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">

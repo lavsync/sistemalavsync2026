@@ -5,7 +5,8 @@ import { motion } from "framer-motion";
 import {
   Trophy, Crown, Gem, Award, Medal, Sparkles, RefreshCw, Send,
   Loader2, ChevronRight, Users, TrendingDown, Phone, Filter,
-  Building2, Calendar, Layers, MessageCircle,
+  Building2, Calendar, Layers, MessageCircle, Plus, Pencil, Power,
+  Trash2, Copy as CopyIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,8 @@ import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, Sit
 import { classificarMes, gerarDisparosClube } from "@/lib/clube/actions";
 import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
 import { renderMensagem, linkWhatsApp, LINK_PORTAL_CLIENTE } from "@/lib/clube/render-mensagem";
+import { excluirTemplate, alternarAtivoTemplate, salvarTemplate } from "@/lib/clube/templates-actions";
+import { TemplateEditorDialog, BotaoCopiarBanner } from "./template-editor";
 import { UnidadeMultiSwitcher } from "@/components/ui/unidade-multi-switcher";
 import type { SelecaoUnidades } from "@/lib/unidade-multi";
 
@@ -67,6 +70,30 @@ export function ClubeView({
   const [disparandoTpl, setDisparandoTpl] = React.useState<string | null>(null);
   const [filtroNivel, setFiltroNivel] = React.useState<NivelClube | "todos">("todos");
   const [filtroUnidadeMembros, setFiltroUnidadeMembros] = React.useState<string>("todas");
+  const [editandoTpl, setEditandoTpl] = React.useState<TemplateMensagem | "novo" | null>(null);
+
+  async function onExcluirTemplate(t: TemplateMensagem) {
+    if (!confirm(`Excluir a mensagem "${t.titulo}"?\n\nEssa ação não tem volta. Se preferir, use Desativar.`)) return;
+    const r = await excluirTemplate(t.id);
+    if (r.ok) window.location.reload();
+    else alert("Erro: " + r.erro);
+  }
+
+  async function onAlternarAtivo(t: TemplateMensagem) {
+    const r = await alternarAtivoTemplate(t.id, !t.ativo);
+    if (r.ok) window.location.reload();
+    else alert("Erro: " + r.erro);
+  }
+
+  async function onDuplicarTemplate(t: TemplateMensagem) {
+    const r = await salvarTemplate(null, {
+      tipo: t.tipo, nivel_alvo: t.nivel_alvo,
+      titulo: `${t.titulo} (cópia)`, mensagem: t.mensagem,
+      ativo: false, ordem: t.ordem + 1, banner_url: t.banner_url,
+    });
+    if (r.ok) window.location.reload();
+    else alert("Erro: " + r.erro);
+  }
 
   // mes_ref = mes_aplicacao - 1
   const mesRefDate = new Date(mesAplicacao + "T12:00:00");
@@ -241,14 +268,22 @@ export function ClubeView({
         </div>
       )}
 
-      {/* Templates de mensagem */}
+      {/* Banco de mensagens — gestão completa */}
       <div className="rounded-2xl border border-border bg-card p-5">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-display font-bold text-[14px] inline-flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-brand-cyan" />
             Banco de mensagens WhatsApp ({templates.length})
           </h3>
-          <span className="text-[10px] text-muted-foreground">Clica em &quot;Disparar&quot; pra gerar campanha no log</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground hidden md:inline">
+              Edite, crie e personalize — variáveis, emojis e banner
+            </span>
+            <Button size="sm" onClick={() => setEditandoTpl("novo")}
+              className="bg-gradient-to-r from-brand-cyan to-brand-blue text-white h-8">
+              <Plus className="w-3.5 h-3.5 mr-1" /> Nova mensagem
+            </Button>
+          </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
           {templates.map((t) => {
@@ -258,9 +293,10 @@ export function ClubeView({
               t.tipo === "pontos_disponiveis" ? "brand-cyan" :
               "brand-purple";
             return (
-              <div key={t.id} className="rounded-lg border border-border bg-secondary/20 p-3">
+              <div key={t.id} className={cn("rounded-lg border bg-secondary/20 p-3",
+                t.ativo ? "border-border" : "border-border/50 opacity-60")}>
                 <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
                     <span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
                       `bg-${tipoCor}/15 text-${tipoCor}`)}>
                       {t.tipo.replace(/_/g, " ")}
@@ -274,25 +310,59 @@ export function ClubeView({
                         </span>
                       );
                     })()}
+                    {!t.ativo && (
+                      <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                        inativa
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button title="Editar" onClick={() => setEditandoTpl(t)}
+                      className="text-muted-foreground hover:text-brand-cyan"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button title="Duplicar" onClick={() => onDuplicarTemplate(t)}
+                      className="text-muted-foreground hover:text-brand-cyan"><CopyIcon className="w-3.5 h-3.5" /></button>
+                    <button title={t.ativo ? "Desativar" : "Ativar"} onClick={() => onAlternarAtivo(t)}
+                      className={cn(t.ativo ? "text-success" : "text-muted-foreground", "hover:opacity-70")}>
+                      <Power className="w-3.5 h-3.5" />
+                    </button>
+                    <button title="Excluir" onClick={() => onExcluirTemplate(t)}
+                      className="text-muted-foreground hover:text-danger"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
                 <div className="font-semibold text-[12px] mb-1">{t.titulo}</div>
+                {t.banner_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={t.banner_url} alt="" className="rounded-md max-h-20 mb-1.5 border border-border" />
+                )}
                 <div className="rounded bg-card p-2 text-[11px] text-muted-foreground italic line-clamp-3 mb-2">
                   &ldquo;{t.mensagem}&rdquo;
                 </div>
-                <button
-                  onClick={() => onDispararTemplate(t)}
-                  disabled={disparandoTpl === t.id || resumo.total === 0}
-                  className="w-full px-2 py-1.5 rounded text-[11px] font-bold text-white bg-gradient-to-r from-brand-cyan to-brand-blue hover:opacity-90 inline-flex items-center justify-center gap-1 disabled:opacity-40"
-                >
-                  {disparandoTpl === t.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                  Disparar
-                </button>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => onDispararTemplate(t)}
+                    disabled={disparandoTpl === t.id || resumo.total === 0 || !t.ativo}
+                    className="flex-1 px-2 py-1.5 rounded text-[11px] font-bold text-white bg-gradient-to-r from-brand-cyan to-brand-blue hover:opacity-90 inline-flex items-center justify-center gap-1 disabled:opacity-40"
+                  >
+                    {disparandoTpl === t.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                    Disparar
+                  </button>
+                  {t.banner_url && <BotaoCopiarBanner url={t.banner_url} />}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
+
+      {editandoTpl !== null && (
+        <TemplateEditorDialog
+          template={editandoTpl}
+          onClose={(salvou) => {
+            setEditandoTpl(null);
+            if (salvou) window.location.reload();
+          }}
+        />
+      )}
 
       {/* Situação ao vivo de TODOS os clientes — agrupada por unidade */}
       <SituacaoPorUnidade
@@ -582,6 +652,7 @@ function AbaixoBronzeSection({
                         )}>
                         <MessageCircle className="w-3.5 h-3.5" /> Conversar
                       </button>
+                      {tpl?.banner_url && <BotaoCopiarBanner url={tpl.banner_url} />}
                       <label className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
                         <input type="checkbox" checked={enviados.has(c.cliente_id)}
                           onChange={(e) => onAlternar(c.cliente_id, c.unidade_id, e.target.checked)}
@@ -645,11 +716,16 @@ function SituacaoPorUnidade({
   // ciclos do mês de REFERÊNCIA que conquistaram o benefício); sem nível →
   // 'abaixo_bronze' (incentivo com os números do mês de referência).
   // A corrida atual ({faltam}/{proximo_nivel}) usa a CONTAGEM NOVA do mês.
+  const templateDe = React.useCallback((c: SituacaoCliente): TemplateMensagem | null => {
+    const vigente = c.nivel_vigente;
+    return (vigente
+      ? templates.find((t) => t.tipo === "parabens_nivel" && t.nivel_alvo === vigente && t.ativo !== false)
+      : templates.find((t) => t.tipo === "abaixo_bronze" && t.ativo !== false)) ?? null;
+  }, [templates]);
+
   const mensagemDe = React.useCallback((c: SituacaoCliente): string | null => {
     const vigente = c.nivel_vigente;
-    const tpl = vigente
-      ? templates.find((t) => t.tipo === "parabens_nivel" && t.nivel_alvo === vigente && t.ativo !== false)
-      : templates.find((t) => t.tipo === "abaixo_bronze" && t.ativo !== false);
+    const tpl = templateDe(c);
     if (!tpl) return null;
 
     // Corrida ATUAL (contagem nova) pro cliente vigente; pro abaixo de bronze,
@@ -679,7 +755,7 @@ function SituacaoPorUnidade({
       mes_aplic_nome: nomeDoMes(mesAplicacao),
       link_portal: LINK_PORTAL_CLIENTE,
     });
-  }, [templates, mesRefStr, mesAplicacao]);
+  }, [templateDe, mesRefStr, mesAplicacao]);
 
   async function alternarEnviado(c: SituacaoCliente, valor: boolean) {
     await onAlternar(c.cliente_id, c.unidade_id, valor);
@@ -898,6 +974,9 @@ function SituacaoPorUnidade({
                                 <MessageCircle className="w-3.5 h-3.5" />
                                 Conversar
                               </button>
+                              {templateDe(c)?.banner_url && (
+                                <BotaoCopiarBanner url={templateDe(c)!.banner_url!} />
+                              )}
                               <label
                                 title="Cliente já recebeu a mensagem de qualificação deste mês"
                                 className="inline-flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer select-none">
