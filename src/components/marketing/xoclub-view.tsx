@@ -15,6 +15,7 @@ import { marcarEnvioManual } from "@/lib/clube/envios-manuais";
 import { renderMensagem, linkWhatsApp, LINK_PORTAL_CLIENTE } from "@/lib/clube/render-mensagem";
 import { BotaoCopiarBanner } from "./template-editor";
 import type { UsuarioDoDia } from "@/lib/xoclub/queries";
+import { lavcoinsParaReais, reaisParaLavcoins } from "@/lib/xoclub/lavcoin";
 
 // ─── SALDO DO DIA — quem usou ONTEM recebe a atualização de saldo ───────────
 function SaldoDoDiaView({
@@ -302,44 +303,36 @@ function Dashboard({ resumo }: { resumo: ResumoXoClub }) {
         <KPI label="Total clientes" valor={resumo.total_clientes} icon={Users} tone="brand-cyan" />
         <KPI label="Ativos (45d)" valor={resumo.clientes_ativos} icon={CheckCircle2} tone="success" />
         <KPI label="Inativos" valor={resumo.clientes_inativos} icon={AlertTriangle} tone="warning" />
-        <KPI label="XC emitidos" valor={resumo.total_xc_emitidos} icon={Coins} tone="brand-purple" />
-        <KPI label="XC resgatados" valor={resumo.total_xc_resgatados} icon={Gift} tone="brand-blue" />
+        <KPI label="LavCoins emitidos" valor={resumo.total_xc_emitidos} icon={Coins} tone="brand-purple" />
+        <KPI label="Resgatados" valor={resumo.total_xc_resgatados} icon={Gift} tone="brand-blue" />
         <KPI label="Em circulação" valor={resumo.total_xc_em_circulacao} icon={Wallet} tone="brand-cyan" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <div className="font-display font-bold text-[14px] mb-3 inline-flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-warning" />
-            Distribuição por nível
+        {/* Reserva financeira — 1 LavCoin = R$0,05 (provisionado como custo no Financeiro) */}
+        <div className="rounded-2xl border border-warning/30 bg-gradient-to-br from-warning/[0.06] to-transparent p-5">
+          <div className="font-display font-bold text-[14px] mb-1 inline-flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-warning" />
+            Reserva financeira LavCoin
           </div>
-          <div className="space-y-2">
-            {NIVEIS_XC.map((n) => {
-              const Icon = NIVEL_ICON_MAP[n.key];
-              const qtd = resumo.por_nivel[n.key] ?? 0;
-              const pct = resumo.total_clientes > 0 ? (qtd / resumo.total_clientes) * 100 : 0;
-              return (
-                <div key={n.key} className="flex items-center gap-3">
-                  <div className={cn("w-7 h-7 rounded-md flex items-center justify-center", `bg-${n.cor}/15 text-${n.cor}`)}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-baseline justify-between text-[12px]">
-                      <span className="font-semibold">{n.label}</span>
-                      <span className="text-muted-foreground">
-                        {n.xcMax != null ? `${n.xcMin}–${n.xcMax}` : `${n.xcMin}+`} XC
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 flex-1 rounded-full bg-secondary overflow-hidden">
-                        <div className={cn("h-full rounded-full", `bg-${n.cor}`)} style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className={cn("font-mono font-bold text-[13px] min-w-[40px] text-right", `text-${n.cor}`)}>{qtd}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <p className="text-[11px] text-muted-foreground mb-4">
+            1 LavCoin = R$ 0,05 · provisionado como custo variável no módulo Financeiro (5% do faturamento)
+          </p>
+          <div className="font-display font-bold text-4xl text-warning tabular-nums">
+            {fmtBRL(lavcoinsParaReais(resumo.total_xc_em_circulacao))}
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            em circulação ({resumo.total_xc_em_circulacao.toLocaleString("pt-BR")} LavCoins nas mãos dos clientes)
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Emitidos (histórico)</div>
+              <div className="font-mono font-bold text-[15px] mt-0.5">{fmtBRL(lavcoinsParaReais(resumo.total_xc_emitidos))}</div>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-3">
+              <div className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Já resgatados</div>
+              <div className="font-mono font-bold text-[15px] mt-0.5 text-success">{fmtBRL(lavcoinsParaReais(resumo.total_xc_resgatados))}</div>
+            </div>
           </div>
         </div>
 
@@ -855,23 +848,33 @@ function ProdutoDialog({ produto, modoNovo, onClose }: { produto: Produto | null
                         </select>
                       </FormField>
                       <div className="grid grid-cols-2 gap-3">
-                        <FormField label="Custo XC">
-                          <input type="number" value={form.custo_xc} onChange={(e) => setForm({ ...form, custo_xc: Number(e.target.value) })} className="form-input font-mono" />
+                        <FormField label="Valor de venda (R$)">
+                          <input type="number" step="0.01" value={form.valor_percebido_brl ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value ? Number(e.target.value) : null;
+                              // 1 LavCoin = R$0,05 → preço em coins calculado na hora
+                              setForm({
+                                ...form,
+                                valor_percebido_brl: v,
+                                custo_xc: v != null ? reaisParaLavcoins(v) : form.custo_xc,
+                              });
+                            }}
+                            className="form-input font-mono" />
                         </FormField>
-                        <FormField label="Ordem">
-                          <input type="number" value={form.ordem ?? 100} onChange={(e) => setForm({ ...form, ordem: Number(e.target.value) })} className="form-input font-mono" />
+                        <FormField label="Preço em LavCoins (auto · 1 = R$0,05)">
+                          <input type="number" value={form.custo_xc}
+                            onChange={(e) => setForm({ ...form, custo_xc: Number(e.target.value) })}
+                            className="form-input font-mono text-brand-cyan font-bold" />
                         </FormField>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
-                        <FormField label="Valor percebido (R$)">
-                          <input type="number" step="0.01" value={form.valor_percebido_brl ?? ""}
-                            onChange={(e) => setForm({ ...form, valor_percebido_brl: e.target.value ? Number(e.target.value) : null })}
-                            className="form-input font-mono" />
-                        </FormField>
                         <FormField label="Custo operacional (R$)">
                           <input type="number" step="0.01" value={form.custo_operacional_brl ?? ""}
                             onChange={(e) => setForm({ ...form, custo_operacional_brl: e.target.value ? Number(e.target.value) : null })}
                             className="form-input font-mono" />
+                        </FormField>
+                        <FormField label="Ordem">
+                          <input type="number" value={form.ordem ?? 100} onChange={(e) => setForm({ ...form, ordem: Number(e.target.value) })} className="form-input font-mono" />
                         </FormField>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
