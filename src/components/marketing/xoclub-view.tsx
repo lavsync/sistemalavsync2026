@@ -251,7 +251,7 @@ export function XoClubView({
         </Tabs.List>
 
         <Tabs.Content value="dashboard" className="outline-none mt-5">
-          <Dashboard resumo={resumo} />
+          <Dashboard resumo={resumo} saldos={saldos} produtos={produtos} />
         </Tabs.Content>
         <Tabs.Content value="saldos" className="outline-none mt-5">
           <SaldosView saldos={saldos} templatePortal={templatePortal} templatePortalBanner={templatePortalBanner} enviosPortal={enviosPortal} mesAtual={mesAtual} />
@@ -296,7 +296,26 @@ function MiniKPI({ label, valor, tone }: { label: string; valor: string; tone: s
 // ────────────────────────────────────────────────────────────
 // DASHBOARD
 // ────────────────────────────────────────────────────────────
-function Dashboard({ resumo }: { resumo: ResumoXoClub }) {
+function Dashboard({ resumo, saldos, produtos }: { resumo: ResumoXoClub; saldos: SaldoCliente[]; produtos: Produto[] }) {
+  // Poder de compra: faixas de saldo em R$ + quantos clientes alcançam
+  // cada produto da store — guia do que vale disponibilizar
+  const FAIXAS_RS = [
+    { label: "até R$ 5", min: 0, max: 5 },
+    { label: "R$ 5 – 10", min: 5, max: 10 },
+    { label: "R$ 10 – 25", min: 10, max: 25 },
+    { label: "R$ 25 – 50", min: 25, max: 50 },
+    { label: "R$ 50+", min: 50, max: Infinity },
+  ];
+  const faixas = FAIXAS_RS.map((f) => ({
+    ...f,
+    qtd: saldos.filter((s) => {
+      const v = lavcoinsParaReais(s.saldo_atual);
+      return v >= f.min && (f.max === Infinity ? true : v < f.max);
+    }).length,
+  }));
+  const maxFaixa = Math.max(1, ...faixas.map((f) => f.qtd));
+  const produtosAtivos = produtos.filter((p) => p.ativo).sort((a, b) => a.custo_xc - b.custo_xc).slice(0, 8);
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -342,21 +361,73 @@ function Dashboard({ resumo }: { resumo: ResumoXoClub }) {
             Top 10 saldos
           </div>
           <div className="space-y-1.5">
-            {resumo.saldo_top10.map((s, i) => {
-              const Icon = NIVEL_ICON_MAP[s.nivel];
-              const cor = corDoNivelXC(s.nivel);
+            {resumo.saldo_top10.map((s, i) => (
+              <div key={s.cliente_id} className="flex items-center gap-2 text-[12px] py-1 border-b border-border/40 last:border-b-0">
+                <span className="font-mono font-bold text-muted-foreground w-6">#{i + 1}</span>
+                <span className="flex-1 truncate font-semibold">{s.cliente_nome}</span>
+                <span className="text-[10px] text-muted-foreground">{s.unidade_nome}</span>
+                <span className="font-mono font-bold text-brand-cyan">{s.saldo_atual}</span>
+                <span className="font-mono text-[11px] text-warning font-bold min-w-[64px] text-right">
+                  {fmtBRL(lavcoinsParaReais(s.saldo_atual))}
+                </span>
+              </div>
+            ))}
+            {resumo.saldo_top10.length === 0 && (
+              <div className="text-center text-[12px] text-muted-foreground py-6">Sem dados ainda</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── PODER DE COMPRA — o que a base consegue resgatar hoje ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="font-display font-bold text-[14px] mb-1 inline-flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-brand-cyan" />
+            Poder de compra da base ({saldos.length.toLocaleString("pt-BR")} clientes)
+          </div>
+          <p className="text-[11px] text-muted-foreground mb-4">Saldo convertido em reais (1 LavCoin = R$ 0,05)</p>
+          <div className="space-y-2.5">
+            {faixas.map((f) => (
+              <div key={f.label} className="flex items-center gap-3">
+                <span className="text-[12px] font-semibold w-24 shrink-0">{f.label}</span>
+                <div className="h-2 flex-1 rounded-full bg-secondary overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-blue"
+                    style={{ width: `${(f.qtd / maxFaixa) * 100}%` }} />
+                </div>
+                <span className="font-mono font-bold text-[13px] min-w-[52px] text-right">
+                  {f.qtd.toLocaleString("pt-BR")}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="font-display font-bold text-[14px] mb-1 inline-flex items-center gap-2">
+            <ShoppingBag className="w-4 h-4 text-brand-purple" />
+            Alcance dos produtos da store
+          </div>
+          <p className="text-[11px] text-muted-foreground mb-4">Quantos clientes já têm saldo pra resgatar cada produto</p>
+          <div className="space-y-2">
+            {produtosAtivos.map((p) => {
+              const alcancam = saldos.filter((s) => s.saldo_atual >= p.custo_xc).length;
+              const pct = saldos.length > 0 ? (alcancam / saldos.length) * 100 : 0;
               return (
-                <div key={s.cliente_id} className="flex items-center gap-2 text-[12px] py-1 border-b border-border/40 last:border-b-0">
-                  <span className="font-mono font-bold text-muted-foreground w-6">#{i + 1}</span>
-                  <Icon className={cn("w-3.5 h-3.5", `text-${cor}`)} />
-                  <span className="flex-1 truncate font-semibold">{s.cliente_nome}</span>
-                  <span className="text-[10px] text-muted-foreground">{s.unidade_nome}</span>
-                  <span className={cn("font-mono font-bold", `text-${cor}`)}>{s.saldo_atual} XC</span>
+                <div key={p.id} className="flex items-center gap-3 text-[12px] py-1 border-b border-border/40 last:border-b-0">
+                  <span className="flex-1 truncate font-semibold">{p.nome}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {p.custo_xc} coins · {fmtBRL(lavcoinsParaReais(p.custo_xc))}
+                  </span>
+                  <span className="font-mono font-bold text-brand-cyan min-w-[48px] text-right">{alcancam.toLocaleString("pt-BR")}</span>
+                  <span className="text-[10px] text-muted-foreground min-w-[42px] text-right">({pct.toFixed(1)}%)</span>
                 </div>
               );
             })}
-            {resumo.saldo_top10.length === 0 && (
-              <div className="text-center text-[12px] text-muted-foreground py-6">Sem dados ainda</div>
+            {produtosAtivos.length === 0 && (
+              <div className="text-center text-[12px] text-muted-foreground py-6">
+                Nenhum produto ativo na store ainda — cadastre em Store e o alcance aparece aqui.
+              </div>
             )}
           </div>
         </div>
@@ -457,6 +528,7 @@ function SaldosView({
                 <th className="text-left py-2 px-3 font-semibold">Cliente</th>
                 <th className="text-left py-2 px-3 font-semibold">Unidade</th>
                 <th className="text-right py-2 px-3 font-semibold">Saldo LavCoin</th>
+                <th className="text-right py-2 px-3 font-semibold">Saldo em R$</th>
                 <th className="text-right py-2 px-3 font-semibold">Total ganho</th>
                 <th className="text-right py-2 px-3 font-semibold">Resgatado</th>
                 <th className="text-left py-2 px-3 font-semibold">Cadastro</th>
@@ -478,6 +550,7 @@ function SaldosView({
                     </td>
                     <td className="py-2 px-3 text-[11px] text-muted-foreground">{s.unidade_nome}</td>
                     <td className="py-2 px-3 text-right font-mono font-bold text-brand-cyan">{s.saldo_atual}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-warning">{fmtBRL(lavcoinsParaReais(s.saldo_atual))}</td>
                     <td className="py-2 px-3 text-right font-mono text-muted-foreground">{s.total_ganho_lifetime}</td>
                     <td className="py-2 px-3 text-right font-mono text-muted-foreground">{s.total_resgatado_lifetime}</td>
                     <td className="py-2 px-3 text-[11px] whitespace-nowrap">
