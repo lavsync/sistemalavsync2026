@@ -19,12 +19,13 @@ import { lavcoinsParaReais, reaisParaLavcoins } from "@/lib/xoclub/lavcoin";
 
 // ─── SALDO DO DIA — quem usou ONTEM recebe a atualização de saldo ───────────
 function SaldoDoDiaView({
-  dia, usuarios, template, enviosIniciais,
+  dia, usuarios, template, enviosIniciais, portais,
 }: {
   dia: string;
   usuarios: UsuarioDoDia[];
   template: string | null;
   enviosIniciais: string[];
+  portais: Record<string, string>;
 }) {
   const [enviados, setEnviados] = React.useState<Set<string>>(new Set(enviosIniciais));
   const [soPendentes, setSoPendentes] = React.useState(false);
@@ -41,9 +42,9 @@ function SaldoDoDiaView({
       pontos: u.saldo_lavcoins,
       ciclos: u.ciclos_dia,
       dias_de_cliente: u.dias_de_cliente ?? 0,
-      link_portal: LINK_PORTAL_CLIENTE,
+      link_portal: portais[u.unidade_id] ?? LINK_PORTAL_CLIENTE,
     });
-  }, [template]);
+  }, [template, portais]);
 
   async function alternar(u: UsuarioDoDia, valor: boolean) {
     setEnviados((s) => {
@@ -199,7 +200,7 @@ const NIVEL_ICON_MAP: Record<NivelXoClub, React.ElementType> = {
 export function XoClubView({
   resumo, saldos, produtos, resgates, config, unidades,
   templatePortal, templatePortalBanner, enviosPortal, mesAtual,
-  usuariosOntem, templateSaldoDiario, enviosSaldo,
+  usuariosOntem, templateSaldoDiario, enviosSaldo, portais,
 }: {
   resumo: ResumoXoClub;
   saldos: SaldoCliente[];
@@ -214,6 +215,7 @@ export function XoClubView({
   usuariosOntem: { dia: string; usuarios: UsuarioDoDia[] };
   templateSaldoDiario: string | null;
   enviosSaldo: string[];
+  portais: Record<string, string>;
 }) {
   const [tab, setTab] = React.useState<"dashboard" | "saldos" | "saldo_dia" | "store" | "resgates" | "config">("dashboard");
   void unidades;
@@ -254,11 +256,11 @@ export function XoClubView({
           <Dashboard resumo={resumo} saldos={saldos} produtos={produtos} />
         </Tabs.Content>
         <Tabs.Content value="saldos" className="outline-none mt-5">
-          <SaldosView saldos={saldos} templatePortal={templatePortal} templatePortalBanner={templatePortalBanner} enviosPortal={enviosPortal} mesAtual={mesAtual} />
+          <SaldosView saldos={saldos} templatePortal={templatePortal} templatePortalBanner={templatePortalBanner} enviosPortal={enviosPortal} mesAtual={mesAtual} portais={portais} />
         </Tabs.Content>
         <Tabs.Content value="saldo_dia" className="outline-none mt-5">
           <SaldoDoDiaView dia={usuariosOntem.dia} usuarios={usuariosOntem.usuarios}
-            template={templateSaldoDiario} enviosIniciais={enviosSaldo} />
+            template={templateSaldoDiario} enviosIniciais={enviosSaldo} portais={portais} />
         </Tabs.Content>
         <Tabs.Content value="store" className="outline-none mt-5">
           <StoreView produtos={produtos} saldos={saldos} />
@@ -454,13 +456,14 @@ function KPI({ label, valor, icon: Icon, tone }: { label: string; valor: number;
 // SALDOS
 // ────────────────────────────────────────────────────────────
 function SaldosView({
-  saldos, templatePortal, templatePortalBanner, enviosPortal, mesAtual,
+  saldos, templatePortal, templatePortalBanner, enviosPortal, mesAtual, portais,
 }: {
   saldos: SaldoCliente[];
   templatePortal: string | null;
   templatePortalBanner: string | null;
   enviosPortal: string[];
   mesAtual: string;
+  portais: Record<string, string>;
 }) {
   const [busca, setBusca] = React.useState("");
   const [ajustando, setAjustando] = React.useState<SaldoCliente | null>(null);
@@ -474,9 +477,9 @@ function SaldosView({
       lavcoins: s.saldo_atual,
       pontos: s.saldo_atual,
       nivel: labelDoNivelXC(s.nivel).toUpperCase(),
-      link_portal: LINK_PORTAL_CLIENTE,
+      link_portal: (s.unidade_id ? portais[s.unidade_id] : null) ?? LINK_PORTAL_CLIENTE,
     });
-  }, [templatePortal]);
+  }, [templatePortal, portais]);
 
   async function alternarEnviado(s: SaldoCliente, valor: boolean) {
     setEnviados((prev) => {

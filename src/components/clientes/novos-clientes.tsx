@@ -32,6 +32,7 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
   const sp = useSearchParams();
   const periodoAtivo = (sp.get("novos") as PeriodoNovos) || "30d";
   const diaParam = sp.get("dia") || hojeIso();
+  const diaFimParam = sp.get("dia_fim") || "";
 
   function trocarPeriodo(p: PeriodoNovos) {
     const next = new URLSearchParams(sp.toString());
@@ -45,10 +46,13 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
     router.push(`/clientes?${next.toString()}`);
   }
 
-  function trocarDia(novoDia: string) {
+  function trocarDia(novoDia: string, novoFim?: string) {
     const next = new URLSearchParams(sp.toString());
     next.set("novos", "data");
     next.set("dia", novoDia);
+    const fim = novoFim !== undefined ? novoFim : diaFimParam;
+    if (fim && fim > novoDia) next.set("dia_fim", fim);
+    else next.delete("dia_fim");
     router.push(`/clientes?${next.toString()}`);
   }
 
@@ -60,7 +64,7 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
       height="auto"
       subtitle={
         periodoAtivo === "data"
-          ? `Cadastros em ${fmtDiaBR(diaParam)}`
+          ? (diaFimParam ? `Cadastros de ${fmtDiaBR(diaParam)} até ${fmtDiaBR(diaFimParam)}` : `Cadastros em ${fmtDiaBR(diaParam)}`)
           : `${periodoMeta.subtitle} · cadastros via totem MAXPAN/VM`
       }
       actions={
@@ -96,14 +100,29 @@ export function NovosClientes({ resumo }: { resumo: NovosResumo }) {
       {periodoAtivo === "data" && (
         <div className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-lg border border-brand-cyan/25 bg-brand-cyan/5">
           <Calendar className="w-4 h-4 text-brand-cyan" />
-          <label className="text-[11px] font-semibold text-muted-foreground">Escolha o dia:</label>
+          <label className="text-[11px] font-semibold text-muted-foreground">De:</label>
           <input
             type="date"
             value={diaParam}
             max={hojeIso()}
             onChange={(e) => e.target.value && trocarDia(e.target.value)}
-            className="form-input h-8 text-[12px] py-0 font-mono"
+            className="form-input w-auto h-8 text-[12px] py-0 font-mono"
           />
+          <label className="text-[11px] font-semibold text-muted-foreground">Até:</label>
+          <input
+            type="date"
+            value={diaFimParam}
+            min={diaParam}
+            max={hojeIso()}
+            onChange={(e) => trocarDia(diaParam, e.target.value)}
+            className="form-input w-auto h-8 text-[12px] py-0 font-mono"
+          />
+          {diaFimParam && (
+            <button onClick={() => trocarDia(diaParam, "")}
+              className="text-[10px] font-semibold text-muted-foreground hover:text-foreground underline">
+              só 1 dia
+            </button>
+          )}
           <div className="flex items-center gap-1 ml-auto">
             <button
               onClick={() => trocarDia(adicionarDias(diaParam, -1))}

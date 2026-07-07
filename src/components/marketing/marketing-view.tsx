@@ -8,7 +8,7 @@ import {
   Megaphone, Plus, Send, Eye, Trash2, Save, X, Loader2,
   MessageCircle, Mail, Smartphone, Users, Crown, Heart, TrendingDown,
   UserPlus, AlertTriangle, CheckCircle2, Clock, Sparkles, Building2,
-  Edit2, Trophy,
+  Edit2, Trophy, Ticket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -20,6 +20,8 @@ import {
 } from "@/lib/marketing/actions";
 import { ClubeView } from "./clube-view";
 import { XoClubView } from "./xoclub-view";
+import { CuponsView } from "./cupons-view";
+import type { RelatorioCupons } from "@/lib/marketing/cupons";
 import type { Classificacao, ResumoClube, TemplateMensagem, SituacaoUnidade, QuaseCliente } from "@/lib/clube/queries";
 import type { ResumoXoClub, SaldoCliente, Produto, Resgate, XoClubConfig, UsuarioDoDia } from "@/lib/xoclub/queries";
 import type { SelecaoUnidades } from "@/lib/unidade-multi";
@@ -61,7 +63,7 @@ export function MarketingView({
   clubeSituacao, clubeSelecaoUnidades, clubeEnviosQualificacao, clubeAbaixoBronze,
   xoclubResumo, xoclubSaldos, xoclubProdutos, xoclubResgates, xoclubConfig,
   xoclubTemplatePortal, xoclubTemplatePortalBanner, xoclubEnviosPortal, xoclubMesAtual,
-  xoclubUsuariosOntem, xoclubTemplateSaldoDiario, xoclubEnviosSaldo,
+  xoclubUsuariosOntem, xoclubTemplateSaldoDiario, xoclubEnviosSaldo, portais, cupons,
 }: {
   campanhas: Campanha[];
   unidades: Unidade[];
@@ -87,8 +89,10 @@ export function MarketingView({
   xoclubUsuariosOntem: { dia: string; usuarios: UsuarioDoDia[] };
   xoclubTemplateSaldoDiario: string | null;
   xoclubEnviosSaldo: string[];
+  portais: Record<string, string>;
+  cupons: RelatorioCupons;
 }) {
-  const [tab, setTab] = React.useState<"campanhas" | "clube" | "xoclub">("campanhas");
+  const [tab, setTab] = React.useState<"campanhas" | "clube" | "xoclub" | "cupons">("campanhas");
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>(unidadeAtivaId);
   const [editando, setEditando] = React.useState<Campanha | "nova" | null>(null);
   const [disparando, setDisparando] = React.useState<string | null>(null);
@@ -127,7 +131,7 @@ export function MarketingView({
         }
       />
 
-      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "campanhas" | "clube" | "xoclub")}>
+      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "campanhas" | "clube" | "xoclub" | "cupons")}>
         <Tabs.List className="flex gap-1 rounded-xl border border-border bg-card p-1 w-fit">
           <Tabs.Trigger value="campanhas"
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-cyan data-[state=active]:to-brand-blue data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
@@ -143,6 +147,11 @@ export function MarketingView({
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-purple data-[state=active]:to-brand-cyan data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
             <Sparkles className="w-3.5 h-3.5" /> XÔ Club
             <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{xoclubResumo.total_clientes}</span>
+          </Tabs.Trigger>
+          <Tabs.Trigger value="cupons"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-danger data-[state=active]:to-warning data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">
+            <Ticket className="w-3.5 h-3.5" /> Uso de Cupons
+            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/15">{cupons.total_usos}</span>
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -225,6 +234,7 @@ export function MarketingView({
             selecaoUnidades={clubeSelecaoUnidades}
             enviosQualificacao={clubeEnviosQualificacao}
             abaixoBronze={clubeAbaixoBronze}
+            portais={portais}
           />
         </Tabs.Content>
 
@@ -243,7 +253,12 @@ export function MarketingView({
             usuariosOntem={xoclubUsuariosOntem}
             templateSaldoDiario={xoclubTemplateSaldoDiario}
             enviosSaldo={xoclubEnviosSaldo}
+            portais={portais}
           />
+        </Tabs.Content>
+
+        <Tabs.Content value="cupons" className="outline-none mt-5">
+          <CuponsView relatorio={cupons} />
         </Tabs.Content>
       </Tabs.Root>
 

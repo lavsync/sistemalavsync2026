@@ -40,6 +40,7 @@ export default async function Page({
     ord?: string;
     novos?: string;
     dia?: string;
+    dia_fim?: string;
     unidade?: string;
   }>;
 }) {
@@ -54,6 +55,7 @@ export default async function Page({
       ? (sp!.novos as PeriodoNovos)
       : "30d";
   const diaNovos = diaValido(sp?.dia);
+  const diaFimNovos = diaValido(sp?.dia_fim);
 
   const filtros = {
     busca: sp?.q,
@@ -74,7 +76,7 @@ export default async function Page({
     listarClientes(selecao.ids, { ...filtros, limit: PAGE_SIZE, offset }),
     listarClientes(selecao.ids, { limit: 1, offset: 0 }),
     getDistribuicaoGenero(selecao.ids),
-    getNovosClientes(selecao.ids, periodoNovos, 200, diaNovos),
+    getNovosClientes(selecao.ids, periodoNovos, 200, diaNovos, diaFimNovos),
   ]);
 
   return (

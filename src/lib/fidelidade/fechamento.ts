@@ -96,6 +96,9 @@ export async function fecharMesAnterior(opts?: { force?: boolean }): Promise<Res
       if (tp.nivel_alvo) tplPorNivel.set(tp.nivel_alvo, tp.mensagem);
     }
 
+    const { data: undsPortal } = await sb.from("unidades").select("id, portal_url");
+    const portalMap = new Map(((undsPortal ?? []) as Array<{ id: string; portal_url: string | null }>)
+      .map((u) => [u.id, u.portal_url]));
     const clienteIds = batch.map((b) => b.cliente_id as string);
     const { data: clientes } = await sb
       .from("clientes").select("id, nome, telefone, cpf")
@@ -135,7 +138,8 @@ export async function fecharMesAnterior(opts?: { force?: boolean }): Promise<Res
         .replace(/\{desconto_proximo\}/gi, String(prox.proximo?.descontoPct ?? 0))
         .replace(/\{faltam_proximo\}/gi, String(prox.faltam))
         .replace(/\{mes_ref_nome\}/gi, nomeMes(mesRef))
-        .replace(/\{mes_aplic_nome\}/gi, nomeMes(mesAplic));
+        .replace(/\{mes_aplic_nome\}/gi, nomeMes(mesAplic))
+        .replace(/\{link_portal\}/gi, portalMap.get(b.unidade_id as string) ?? "https://sistema.lavsync.com.br/meu-clube");
 
       itens.push({
         tenant_id: tenantId,

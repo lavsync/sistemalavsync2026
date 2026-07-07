@@ -435,7 +435,8 @@ export async function getNovosClientes(
   unidadeIds: string[],
   periodo: PeriodoNovos,
   limit: number = 200,
-  dia?: string, // YYYY-MM-DD (usado quando periodo === "data")
+  dia?: string,    // YYYY-MM-DD (início, quando periodo === "data")
+  diaFim?: string, // YYYY-MM-DD (fim do PERÍODO; vazio = mesmo dia)
 ): Promise<NovosResumo> {
   const supabase = await createClient();
   const ms_dia = 24 * 60 * 60 * 1000;
@@ -445,11 +446,15 @@ export async function getNovosClientes(
   let inicioAnterior: Date;
 
   if (periodo === "data" && dia) {
-    // Janela: aquele dia (00:00 → 23:59:59 local)
+    // Janela: do dia inicial 00:00 até o dia final 23:59:59 (período livre)
     const [y, m, d] = dia.split("-").map(Number);
     inicio = new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
-    fim = new Date(y, (m ?? 1) - 1, d ?? 1, 23, 59, 59, 999);
-    inicioAnterior = new Date(inicio.getTime() - ms_dia);
+    const fimStr = diaFim && diaFim >= dia ? diaFim : dia;
+    const [yf, mf, df] = fimStr.split("-").map(Number);
+    fim = new Date(yf, (mf ?? 1) - 1, df ?? 1, 23, 59, 59, 999);
+    // período anterior de mesmo tamanho (pra variação %)
+    const tamanho = fim.getTime() - inicio.getTime() + 1;
+    inicioAnterior = new Date(inicio.getTime() - tamanho);
   } else {
     fim = new Date();
     const dias = PERIODO_DIAS[(periodo === "data" ? "30d" : periodo) as Exclude<PeriodoNovos, "data">];

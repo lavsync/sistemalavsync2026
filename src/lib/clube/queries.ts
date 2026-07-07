@@ -341,6 +341,17 @@ export async function getAbaixoBronze(
     .sort((a, b) => b.ciclos - a.ciclos);
 }
 
+/** Portal do clube por unidade — {link_portal} resolve pela loja do cliente. */
+export async function listarPortaisUnidades(): Promise<Record<string, string>> {
+  const sb = await createClient();
+  const { data } = await sb.from("unidades").select("id, portal_url");
+  const map: Record<string, string> = {};
+  for (const u of (data ?? []) as Array<{ id: string; portal_url: string | null }>) {
+    if (u.portal_url) map[u.id] = u.portal_url;
+  }
+  return map;
+}
+
 export type TemplateMensagem = {
   id: string;
   tipo: string;

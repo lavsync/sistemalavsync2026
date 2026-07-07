@@ -10,7 +10,8 @@ import { revalidatePath } from "next/cache";
 // Tipos de mensagem suportados pelos fluxos (livre = uso geral/campanha)
 export const TIPOS_TEMPLATE = [
   "parabens_nivel", "abaixo_bronze", "faltam_ciclos",
-  "pontos_disponiveis", "renovacao_mes", "xoclub_portal", "livre",
+  "pontos_disponiveis", "renovacao_mes", "xoclub_portal",
+  "xoclub_saldo_diario", "livre",
 ] as const;
 
 export type TemplateInput = {

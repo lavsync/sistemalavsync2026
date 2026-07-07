@@ -53,6 +53,7 @@ export function ClubeView({
   selecaoUnidades,
   enviosQualificacao,
   abaixoBronze,
+  portais,
 }: {
   resumo: ResumoClube;
   classificacoes: Classificacao[];
@@ -65,6 +66,7 @@ export function ClubeView({
   selecaoUnidades: SelecaoUnidades;
   enviosQualificacao: string[];
   abaixoBronze: QuaseCliente[];
+  portais: Record<string, string>;
 }) {
   const [classificando, setClassificando] = React.useState(false);
   const [disparandoTpl, setDisparandoTpl] = React.useState<string | null>(null);
@@ -372,6 +374,7 @@ export function ClubeView({
         templates={templates}
         enviados={enviadosQual}
         onAlternar={alternarEnvioQual}
+        portais={portais}
       />
 
       {/* Filtros da tabela de membros */}
@@ -490,6 +493,7 @@ export function ClubeView({
         mesAplicacao={mesAplicacao}
         enviados={enviadosQual}
         onAlternar={alternarEnvioQual}
+        portais={portais}
       />
     </div>
   );
@@ -501,7 +505,7 @@ export function ClubeView({
 // "faltaram X ciclos; este mês uma nova oportunidade começou".
 // ────────────────────────────────────────────────────────────
 function AbaixoBronzeSection({
-  clientes, unidades, templates, mesRefStr, mesAplicacao, enviados, onAlternar,
+  clientes, unidades, templates, mesRefStr, mesAplicacao, enviados, onAlternar, portais,
 }: {
   clientes: QuaseCliente[];
   unidades: Unidade[];
@@ -510,6 +514,7 @@ function AbaixoBronzeSection({
   mesAplicacao: string;
   enviados: Set<string>;
   onAlternar: (clienteId: string, unidadeId: string | null, valor: boolean) => Promise<void>;
+  portais: Record<string, string>;
 }) {
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>("todas");
   const [busca, setBusca] = React.useState("");
@@ -530,10 +535,10 @@ function AbaixoBronzeSection({
       desconto_proximo: NIVEIS.find((n) => n.key === "bronze")?.descontoPct ?? 5,
       mes_ref_nome: nomeDoMes(mesRefStr),
       mes_aplic_nome: nomeDoMes(mesAplicacao),
-      link_portal: LINK_PORTAL_CLIENTE,
+      link_portal: portais[c.unidade_id] ?? LINK_PORTAL_CLIENTE,
       pontos: 0, nivel: "—", desconto: 0, faltam_proximo: c.faltaram,
     });
-  }, [tpl, mesRefStr, mesAplicacao]);
+  }, [tpl, mesRefStr, mesAplicacao, portais]);
 
   function abrirWhatsApp(c: QuaseCliente) {
     const msg = mensagemDe(c);
@@ -693,7 +698,7 @@ function KpiNivel({ icon: Icon, label, valor, tone }: { icon: React.ElementType;
 // SITUAÇÃO AO VIVO POR UNIDADE — todos os clientes do mês_ref
 // ────────────────────────────────────────────────────────────
 function SituacaoPorUnidade({
-  situacao, mesRefStr, mesAplicacao, templates, enviados, onAlternar,
+  situacao, mesRefStr, mesAplicacao, templates, enviados, onAlternar, portais,
 }: {
   situacao: SituacaoUnidade[];
   mesRefStr: string;
@@ -701,6 +706,7 @@ function SituacaoPorUnidade({
   templates: TemplateMensagem[];
   enviados: Set<string>;
   onAlternar: (clienteId: string, unidadeId: string | null, valor: boolean) => Promise<void>;
+  portais: Record<string, string>;
 }) {
   const [unidadeAberta, setUnidadeAberta] = React.useState<string | null>(situacao[0]?.unidade_id ?? null);
   const [filtroNivel, setFiltroNivel] = React.useState<NivelClube | "todos">("todos");
@@ -748,9 +754,9 @@ function SituacaoPorUnidade({
       faltam_proximo: c.ciclos_faltam,
       mes_ref_nome: nomeDoMes(mesRefStr),
       mes_aplic_nome: nomeDoMes(mesAplicacao),
-      link_portal: LINK_PORTAL_CLIENTE,
+      link_portal: portais[c.unidade_id] ?? LINK_PORTAL_CLIENTE,
     });
-  }, [templateDe, mesRefStr, mesAplicacao]);
+  }, [templateDe, mesRefStr, mesAplicacao, portais]);
 
   async function alternarEnviado(c: SituacaoCliente, valor: boolean) {
     await onAlternar(c.cliente_id, c.unidade_id, valor);

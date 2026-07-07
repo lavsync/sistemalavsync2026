@@ -4,10 +4,11 @@ import { listarCampanhas } from "@/lib/marketing/queries";
 import { listarUnidades, getUnidadeAtiva } from "@/lib/unidade-ativa";
 import {
   listarClassificacoes, resumoClube, listarMesesDisponiveis, listarTemplates,
-  getSituacaoClientes, getAbaixoBronze,
+  getSituacaoClientes, getAbaixoBronze, listarPortaisUnidades,
 } from "@/lib/clube/queries";
 import { parseSelecaoUnidades } from "@/lib/unidade-multi";
 import { listarEnviosManuais } from "@/lib/clube/envios-manuais";
+import { relatorioCupons } from "@/lib/marketing/cupons";
 import {
   getResumoXoClub, getSaldosClientes, getProdutos, getResgates, getConfigXoClub,
   getUsuariosDeOntem,
@@ -15,7 +16,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type SP = Promise<{ mes_aplic?: string; unidade?: string }>;
+type SP = Promise<{ mes_aplic?: string; unidade?: string; mes_cupons?: string }>;
 
 function mesAtualStr(): string {
   const d = new Date();
@@ -58,6 +59,9 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
   ]);
   const abaixoBronze = await getAbaixoBronze(selecao.ids, mesRef);
   const usuariosOntem = await getUsuariosDeOntem();
+  const portais = await listarPortaisUnidades();
+  const mesCupons = /^\d{4}-\d{2}-01$/.test(sp?.mes_cupons ?? "") ? sp!.mes_cupons! : mesAtual;
+  const cupons = await relatorioCupons(mesCupons);
   const enviosSaldo = await listarEnviosManuais(usuariosOntem.dia, "xoclub_saldo");
   const templateSaldoDiario = templates.find((t) => t.tipo === "xoclub_saldo_diario" && t.ativo)?.mensagem ?? null;
   const tplPortalRow = templates.find((t) => t.tipo === "xoclub_portal" && t.ativo);
@@ -91,6 +95,8 @@ export default async function Page({ searchParams }: { searchParams: SP }) {
         xoclubUsuariosOntem={usuariosOntem}
         xoclubTemplateSaldoDiario={templateSaldoDiario}
         xoclubEnviosSaldo={enviosSaldo}
+        portais={portais}
+        cupons={cupons}
       />
     </AppShell>
   );

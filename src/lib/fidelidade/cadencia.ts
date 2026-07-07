@@ -98,6 +98,9 @@ export async function rodarCadenciaDiaria(): Promise<ResultadoCadencia> {
 
   const agora = nowBR();
   const mesNome = nomeMes(startOfMonthBR());
+  const { data: undsPortal } = await sb.from("unidades").select("id, portal_url");
+  const portalMap = new Map(((undsPortal ?? []) as Array<{ id: string; portal_url: string | null }>)
+    .map((u) => [u.id, u.portal_url]));
   const ciclosMes = await ciclosDoMesAtual(sb);
 
   // candidato por cliente: primeiro gatilho que casar vence (ordem de prioridade)
@@ -223,6 +226,7 @@ export async function rodarCadenciaDiaria(): Promise<ResultadoCadencia> {
       desconto_proximo: prox.proximo?.descontoPct ?? 0,
       lavcoins_saldo: saldoMap.get(cid) ?? 0,
       lavcoins_hoje: cand.extra.lavcoins_hoje ?? 0,
+      link_portal: (cli.unidade_id ? portalMap.get(cli.unidade_id) : null) ?? "https://sistema.lavsync.com.br/meu-clube",
       ...cand.extra,
     });
 

@@ -24,6 +24,7 @@ const TIPOS: Array<{ value: string; label: string; dica: string }> = [
   { value: "pontos_disponiveis", label: "Pontos disponíveis", dica: "Lembrete de pontos pra trocar na store" },
   { value: "renovacao_mes", label: "Renovação do mês", dica: "Benefício renovado no novo mês" },
   { value: "xoclub_portal", label: "LavCoins + portal", dica: "Saldo LavCoins + link do portal do cliente" },
+  { value: "xoclub_saldo_diario", label: "Saldo do dia (LavCoins)", dica: "Atualização diária pra quem usou ontem" },
   { value: "livre", label: "Livre (uso geral)", dica: "Qualquer campanha ou comunicação avulsa" },
 ];
 
