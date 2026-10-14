@@ -2,6 +2,21 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
+/** Renomear um custo leva junto as despesas reais já lançadas com o nome antigo
+ *  (o vínculo custo ↔ valor pago no DRE é pela descrição). */
+async function renomearDespesas(
+  sb: Awaited<ReturnType<typeof createClient>>,
+  tabela: "financeiro_custos_fixos" | "financeiro_custos_variaveis",
+  id: string,
+  novaDescricao: string,
+) {
+  const { data } = await sb.from(tabela).select("descricao, unidade_id").eq("id", id).maybeSingle();
+  const atual = data as { descricao: string; unidade_id: string } | null;
+  if (!atual || !novaDescricao.trim() || atual.descricao === novaDescricao) return;
+  await sb.from("despesas").update({ descricao: novaDescricao })
+    .eq("unidade_id", atual.unidade_id).eq("descricao", atual.descricao);
+}
+
 async function pegarTenant() {
   const sb = await createClient();
   const { data } = await sb.from("tenants").select("id").limit(1).maybeSingle();
@@ -129,6 +144,7 @@ export async function salvarCustoFixo(unidadeId: string, dados: {
   const sb = await createClient();
   const tenant_id = await pegarTenant();
   if (dados.id) {
+    await renomearDespesas(sb, "financeiro_custos_fixos", dados.id, dados.descricao);
     const { error } = await sb.from("financeiro_custos_fixos").update(dados).eq("id", dados.id);
     if (error) throw error;
   } else {
@@ -157,6 +173,7 @@ export async function salvarCustoVariavel(unidadeId: string, dados: {
   const sb = await createClient();
   const tenant_id = await pegarTenant();
   if (dados.id) {
+    await renomearDespesas(sb, "financeiro_custos_variaveis", dados.id, dados.descricao);
     const { error } = await sb.from("financeiro_custos_variaveis").update(dados).eq("id", dados.id);
     if (error) throw error;
   } else {

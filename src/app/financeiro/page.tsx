@@ -2,12 +2,13 @@ import { AppShell } from "@/components/shell/app-shell";
 import { FinanceiroView } from "@/components/financeiro/financeiro-view";
 import {
   getConfigUnidade, getInvestimento, getCustosFixos,
-  getCustosVariaveis, getLancamentos, getDespesasMes,
+  getCustosVariaveis, getLancamentos, getDespesasPorMes,
   getFaturamentoMensalVendas, mesclarLancamentosComVendas,
 } from "@/lib/financeiro/queries";
 import { getEngenhariaCustos, getCiclosDoMes } from "@/lib/financeiro/margem-queries";
 import { calcularMargemContribuicao } from "@/lib/financeiro/margem-engine";
 import { createClient } from "@/lib/supabase/server";
+import { nowBR } from "@/lib/timezone-br";
 
 export const dynamic = "force-dynamic";
 
@@ -37,18 +38,18 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
     );
   }
 
-  // Mês de despesas para o DRE (default = mês corrente)
-  const hoje = new Date();
-  const refMes = params.despesas_mes ?? `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  // Mês de referência da margem de contribuição (default = mês corrente BR)
+  const hoje = nowBR();
+  const refMes = params.despesas_mes ?? `${hoje.ano}-${String(hoje.mes).padStart(2, "0")}`;
   const [refAno, refMesNum] = refMes.split("-").map(Number);
 
-  const [config, investimento, custos_fixos, custos_variaveis, lancamentosRaw, despesas_mes, vendasMensais, engenharia, ciclosMes] = await Promise.all([
+  const [config, investimento, custos_fixos, custos_variaveis, lancamentosRaw, despesas_por_mes, vendasMensais, engenharia, ciclosMes] = await Promise.all([
     getConfigUnidade(unidadeId),
     getInvestimento(unidadeId),
     getCustosFixos(unidadeId),
     getCustosVariaveis(unidadeId),
     getLancamentos(unidadeId),
-    getDespesasMes(unidadeId, refAno, refMesNum),
+    getDespesasPorMes(unidadeId),
     getFaturamentoMensalVendas(unidadeId),
     getEngenhariaCustos(unidadeId),
     getCiclosDoMes(unidadeId, refAno, refMesNum),
@@ -78,14 +79,7 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
         custos_fixos={custos_fixos}
         custos_variaveis={custos_variaveis}
         lancamentos={lancamentos}
-        despesas_mes={{
-          ano: refAno,
-          mes: refMesNum,
-          itens: despesas_mes.itens,
-          por_categoria: Object.fromEntries(despesas_mes.porCategoria),
-          por_descricao: Object.fromEntries(despesas_mes.porDescricao),
-          total: despesas_mes.totalReal,
-        }}
+        despesas_por_mes={despesas_por_mes}
         engenharia={engenharia}
         margem={margem}
       />

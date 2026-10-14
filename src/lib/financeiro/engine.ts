@@ -59,6 +59,99 @@ export function calcularSimplesMensal(faturamentoMes: number, rbt12: number): nu
   return faturamentoMes * aliquotaSimplesEfetiva(rbt12);
 }
 
+/**
+ * RBT12 pela regra do Simples (LC 123, art. 18): receita bruta dos 12 meses
+ * ANTERIORES ao mês de apuração. Empresa com menos de 12 meses usa a média
+ * dos meses anteriores × 12; no 1º mês, o próprio faturamento × 12.
+ */
+export function rbt12Legal(anteriores: number[], faturamentoMes: number): number {
+  const ult = anteriores.slice(-12);
+  if (ult.length === 0) return faturamentoMes * 12;
+  const soma = ult.reduce((s, v) => s + v, 0);
+  return ult.length < 12 ? (soma / ult.length) * 12 : soma;
+}
+
+// ─── Despesas reais → linhas do DRE ───────────────────────────────────
+// Casa despesas pagas no mês com as linhas de custo (fixo ou variável).
+// 1º match exato pela descrição; depois por categoria sinônima — cada
+// despesa entra UMA vez só (antes, "Publicidade Local" e "Fundo de
+// Propaganda" puxavam a mesma categoria Marketing e somavam em dobro).
+export type DespesaParaDRE = { descricao: string; categoria: string | null; valor: number };
+
+const SINONIMOS_CATEGORIA: Record<string, string[]> = {
+  "aluguel":            ["aluguel", "iptu"],
+  "energia eletrica":   ["energia", "luz", "eletrica"],
+  "agua e esgoto":      ["agua", "esgoto"],
+  "internet":           ["telefone", "internet", "telecom"],
+  "fundo de propaganda": ["fundo de propaganda"],
+  "marketing":          ["publicidade", "propaganda", "marketing"],
+  "manutencao":         ["manutencao", "reparo"],
+  "produtos quimicos":  ["sabao", "amaciante", "csp", "quimico"],
+  "folha de pagamento": ["folha", "salario"],
+};
+
+export function normDesc(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
+export function categoriaDoCusto(descricao: string): string | null {
+  const n = normDesc(descricao);
+  for (const [cat, sins] of Object.entries(SINONIMOS_CATEGORIA)) {
+    if (sins.some((sin) => n.includes(sin))) return cat;
+  }
+  return null;
+}
+
+const NOME_CATEGORIA: Record<string, string> = {
+  "aluguel": "Aluguel",
+  "energia eletrica": "Energia elétrica",
+  "agua e esgoto": "Água e esgoto",
+  "internet": "Internet",
+  "fundo de propaganda": "Fundo de Propaganda",
+  "marketing": "Marketing",
+  "manutencao": "Manutenção",
+  "produtos quimicos": "Produtos químicos",
+  "folha de pagamento": "Folha de pagamento",
+};
+
+/** Nome da categoria financeira em que a despesa real de um custo é gravada. */
+export function nomeCategoriaFinanceira(descricaoCusto: string): string {
+  const cat = categoriaDoCusto(descricaoCusto);
+  return cat ? NOME_CATEGORIA[cat] : "Custos variáveis";
+}
+
+export function mapearDespesasReais(
+  custos: Array<{ descricao: string; ativo: boolean; tipo?: string }>,
+  despesas: DespesaParaDRE[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const ativos = custos.filter((c) => c.ativo && c.tipo !== "simples");
+  const usadas = new Set<number>();
+
+  for (const c of ativos) {
+    const n = normDesc(c.descricao);
+    let soma = 0, achou = false;
+    despesas.forEach((d, i) => {
+      if (normDesc(d.descricao) === n) { soma += d.valor; achou = true; usadas.add(i); }
+    });
+    if (achou) out.set(c.descricao, soma);
+  }
+
+  const catsConsumidas = new Set<string>();
+  for (const c of ativos) {
+    if (out.has(c.descricao)) continue;
+    const cat = categoriaDoCusto(c.descricao);
+    if (!cat || catsConsumidas.has(cat)) continue;
+    let soma = 0, achou = false;
+    despesas.forEach((d, i) => {
+      if (usadas.has(i) || !d.categoria) return;
+      if (normDesc(d.categoria) === cat) { soma += d.valor; achou = true; usadas.add(i); }
+    });
+    if (achou) { out.set(c.descricao, soma); catsConsumidas.add(cat); }
+  }
+  return out;
+}
+
 // ─── DRE Mensal ────────────────────────────────────────────────────────
 export type DRELinha = {
   descricao: string;
@@ -108,6 +201,7 @@ export function calcularDRE(input: CalcDREInput): DREResultado {
   for (const cv of input.custos_variaveis) {
     if (!cv.ativo) continue;
     if (cv.tipo !== "csp") continue;
+    if (cv.a_partir_do_mes && input.mes_index < cv.a_partir_do_mes) continue;
     const vProj = fat * ((cv.percentual_faturamento ?? 0) / 100);
     const vReal = overrides.get(cv.descricao);
     const v = vReal != null ? vReal : vProj;
@@ -156,6 +250,7 @@ export function calcularDRE(input: CalcDREInput): DREResultado {
   for (const cv of input.custos_variaveis) {
     if (!cv.ativo) continue;
     if (cv.tipo !== "variavel") continue;
+    if (cv.a_partir_do_mes && input.mes_index < cv.a_partir_do_mes) continue;
     const vReal = overrides.get(cv.descricao);
     const v = vReal != null ? vReal : fat * ((cv.percentual_faturamento ?? 0) / 100);
     custos_variaveis_total += v;
@@ -205,6 +300,7 @@ export type ProjecaoMes = {
   resultado_projetado: number;
   resultado_real: number | null;
   fluxo_acumulado: number;         // acumulado real (ou projetado se sem real) menos investimento
+  rbt12: number;                   // base do Simples do mês — a MESMA usada no DRE Mensal
   status: "pendente" | "lancado" | "acima" | "abaixo" | "futuro";
 };
 
@@ -218,6 +314,8 @@ export type ProjecaoInput = {
   custos_variaveis: CustoVariavel[];
   investimento_total: number;
   lancamentos: Map<number, number>;  // mes_index → faturamento_real
+  /** chave "AAAA-MM" → valores reais pagos por linha de custo (descrição → R$) */
+  overridesPorMes?: Map<string, Map<string, number>>;
 };
 
 // Curva de ramp-up típica: cresce até atingir potencial no mês ~18
@@ -240,9 +338,9 @@ export function projetar60Meses(input: ProjecaoInput): ProjecaoMes[] {
     const fatProj = input.potencial_faturamento * fatorRamp(i);
     const fatReal = input.lancamentos.get(i) ?? null;
     const fatUsado = fatReal ?? fatProj;
+    const rbt12 = rbt12Legal(fatHistorico, fatUsado);
     fatHistorico.push(fatUsado);
-
-    const rbt12 = fatHistorico.slice(-12).reduce((s, v) => s + v, 0);
+    const overrides = input.overridesPorMes?.get(`${ano}-${String(mes).padStart(2, "0")}`);
 
     const dre = calcularDRE({
       faturamento: fatUsado,
@@ -251,6 +349,7 @@ export function projetar60Meses(input: ProjecaoInput): ProjecaoMes[] {
       custos_fixos: input.custos_fixos,
       custos_variaveis: input.custos_variaveis,
       investimento_total: input.investimento_total,
+      despesas_reais_overrides: overrides,
     });
 
     const dreProj = calcularDRE({
@@ -281,6 +380,7 @@ export function projetar60Meses(input: ProjecaoInput): ProjecaoMes[] {
       resultado_projetado: Math.round(dreProj.resultado_liquido * 100) / 100,
       resultado_real: fatReal != null ? Math.round(dre.resultado_liquido * 100) / 100 : null,
       fluxo_acumulado: Math.round(acumulado * 100) / 100,
+      rbt12,
       status,
     });
   }

@@ -47,8 +47,9 @@ export async function getCiclosDoMes(
   faturamentoLavagem: number; faturamentoSecagem: number;
 }> {
   const sb = await createClient();
-  const ini = new Date(Date.UTC(ano, mes - 1, 1)).toISOString();
-  const fim = new Date(Date.UTC(ano, mes, 0, 23, 59, 59, 999)).toISOString();
+  // Janela do mês no fuso de Brasília (00:00 BR = 03:00 UTC)
+  const ini = new Date(Date.UTC(ano, mes - 1, 1, 3)).toISOString();
+  const fim = new Date(Date.UTC(ano, mes, 1, 3) - 1).toISOString();
   type Row = { tipo_servico: string; quantidade_ciclos: number | string | null; valor: number | string };
   const rows = await paginarTodos<Row>((r) =>
     sb.from("vendas")

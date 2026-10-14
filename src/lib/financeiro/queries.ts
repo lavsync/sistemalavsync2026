@@ -183,7 +183,8 @@ export async function getFaturamentoMensalVendas(
   );
   const buckets = new Map<string, { ano: number; mes: number; faturamento: number; qtdVendas: number; ciclos: number }>();
   for (const r of rows) {
-    const d = new Date(r.data_venda);
+    // Mês no fuso de Brasília — em UTC, vendas após 21h do último dia caíam no mês seguinte
+    const d = new Date(new Date(r.data_venda).getTime() - 3 * 3600_000);
     const ano = d.getUTCFullYear();
     const mes = d.getUTCMonth() + 1;
     const k = `${ano}-${String(mes).padStart(2, "0")}`;
@@ -267,133 +268,64 @@ export function calcInvestimentoTotal(cats: InvestimentoCategoria[]): { projetad
 }
 
 // ─── Despesas reais lançadas ────────────────────────────────────────
-// Para o DRE Mensal substituir custos PROJETADOS por valores REAIS.
+// Todas as despesas da unidade, agrupadas pelo mês de COMPETÊNCIA
+// (fallback: vencimento). O DRE de qualquer mês — inclusive os anteriores —
+// troca o custo projetado pelo valor pago quando há lançamento.
 export type DespesaReal = {
   id: string;
-  categoria_nome: string;        // ex: "Aluguel"
+  categoria_nome: string;
   descricao: string;
   valor: number;
   vencimento: string;
+  competencia: string;           // "AAAA-MM"
   pago_em: string | null;
 };
 
-export type DespesasMesResult = {
-  porCategoria: Map<string, number>;   // nome categoria → soma valor
-  porDescricao: Map<string, number>;   // descricao normalizada → soma valor
-  itens: DespesaReal[];
-  totalReal: number;
-};
-
-function norm(s: string): string {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
-}
-
-/**
- * Tenta casar uma linha de custo fixo (descricao do template) com uma categoria
- * financeira. Ex: "Aluguel e IPTU" → "Aluguel"; "Telefone e Internet" → "Internet";
- * "Publicidade Local" → "Marketing".
- */
-const SINONIMOS: Record<string, string[]> = {
-  "aluguel":         ["aluguel", "aluguel e iptu", "iptu"],
-  "energia eletrica": ["energia", "energia eletrica", "luz", "energia elétrica"],
-  "agua e esgoto":   ["agua", "agua e esgoto", "água", "água e esgoto"],
-  "internet":        ["telefone e internet", "telefone", "internet", "telecom"],
-  "marketing":       ["marketing", "publicidade", "publicidade local", "propaganda", "fundo de propaganda", "marketing inaugural"],
-  "manutencao":      ["manutencao", "manutenção", "reparos"],
-  "produtos quimicos": ["sabao", "amaciante", "csp", "sabao e amaciante", "produtos quimicos", "produtos químicos"],
-  "impostos":        ["impostos", "simples nacional", "iss", "icms"],
-  "folha de pagamento": ["folha", "salarios", "salário", "folha de pagamento"],
-};
-
-export function matchCategoriaCustoFixo(custoDescricao: string): string | null {
-  const n = norm(custoDescricao);
-  for (const [catKey, sins] of Object.entries(SINONIMOS)) {
-    for (const sin of sins) {
-      if (n.includes(sin)) return catKey;
-    }
-  }
-  return null;
-}
-
-export async function getDespesasMes(
-  unidadeId: string,
-  ano: number,
-  mes: number,
-): Promise<DespesasMesResult> {
+export async function getDespesasPorMes(unidadeId: string): Promise<Record<string, DespesaReal[]>> {
   const supabase = await createClient();
-  const ini = new Date(ano, mes - 1, 1).toISOString().slice(0, 10);
-  const fim = new Date(ano, mes, 0).toISOString().slice(0, 10);
-
-  const { data, error } = await supabase
-    .from("despesas")
-    .select(`
-      id, descricao, valor, vencimento, pago_em,
-      categoria:categorias_financeiras(nome)
-    `)
-    .eq("unidade_id", unidadeId)
-    .gte("vencimento", ini)
-    .lte("vencimento", fim);
-  if (error) throw error;
-
   type Row = {
-    id: string;
-    descricao: string;
-    valor: number | string;
-    vencimento: string;
-    pago_em: string | null;
+    id: string; descricao: string; valor: number | string; vencimento: string;
+    data_competencia: string | null; pago_em: string | null;
     categoria: { nome: string } | Array<{ nome: string }> | null;
   };
-  const rows = (data ?? []) as Row[];
-
-  const porCategoria = new Map<string, number>();
-  const porDescricao = new Map<string, number>();
-  const itens: DespesaReal[] = [];
-  let total = 0;
-
+  const rows = await paginarTodos<Row>((r) =>
+    supabase
+      .from("despesas")
+      .select("id, descricao, valor, vencimento, data_competencia, pago_em, categoria:categorias_financeiras(nome)")
+      .eq("unidade_id", unidadeId)
+      .order("vencimento")
+      .range(r.from, r.to),
+  );
+  const out: Record<string, DespesaReal[]> = {};
   for (const r of rows) {
     const cat = Array.isArray(r.categoria) ? r.categoria[0]?.nome : r.categoria?.nome;
-    const v = Number(r.valor) || 0;
-    total += v;
-    if (cat) {
-      const k = norm(cat);
-      porCategoria.set(k, (porCategoria.get(k) ?? 0) + v);
-    }
-    if (r.descricao) {
-      const k = norm(r.descricao);
-      porDescricao.set(k, (porDescricao.get(k) ?? 0) + v);
-    }
-    itens.push({
+    const competencia = (r.data_competencia ?? r.vencimento).slice(0, 7);
+    (out[competencia] ??= []).push({
       id: r.id,
       categoria_nome: cat ?? "Sem categoria",
       descricao: r.descricao,
-      valor: v,
+      valor: Number(r.valor) || 0,
       vencimento: r.vencimento,
+      competencia,
       pago_em: r.pago_em,
     });
   }
-
-  return { porCategoria, porDescricao, itens, totalReal: Math.round(total * 100) / 100 };
+  return out;
 }
 
-/** Cruza despesas reais com os custos fixos do template — retorna mapa
- *  descricao_custo_fixo → valor_real (quando há correspondência). */
-export function mapearDespesasParaCustos(
-  custosFixos: Array<{ descricao: string }>,
-  despesas: DespesasMesResult,
-): Map<string, number> {
-  const overrides = new Map<string, number>();
-  for (const cf of custosFixos) {
-    const descNorm = norm(cf.descricao);
-    // 1. match exato por descrição
-    if (despesas.porDescricao.has(descNorm)) {
-      overrides.set(cf.descricao, despesas.porDescricao.get(descNorm)!);
-      continue;
-    }
-    // 2. match por categoria sinônima
-    const catKey = matchCategoriaCustoFixo(cf.descricao);
-    if (catKey && despesas.porCategoria.has(catKey)) {
-      overrides.set(cf.descricao, despesas.porCategoria.get(catKey)!);
+/** Faturamento real por mês "AAAA-MM": vendas (fuso BR) têm prioridade; senão lançamento manual. */
+export async function getFaturamentoPorMes(unidadeId: string): Promise<Map<string, number>> {
+  const [config, lancs, vendas] = await Promise.all([
+    getConfigUnidade(unidadeId),
+    getLancamentos(unidadeId),
+    getFaturamentoMensalVendas(unidadeId),
+  ]);
+  const merged = mesclarLancamentosComVendas(lancs, vendas, config);
+  const out = new Map<string, number>();
+  for (const l of merged) {
+    if (l.faturamento_real != null && l.faturamento_real > 0) {
+      out.set(`${l.ano}-${String(l.mes).padStart(2, "0")}`, l.faturamento_real);
     }
   }
-  return overrides;
+  return out;
 }

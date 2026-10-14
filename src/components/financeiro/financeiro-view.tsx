@@ -20,7 +20,9 @@ import { Button } from "@/components/ui/button";
 import type { CustoFixo, CustoVariavel, ProjecaoMes } from "@/lib/financeiro/engine";
 import {
   calcularDRE, projetar60Meses, calcularPayback, calcularBreakEven,
+  mapearDespesasReais, rbt12Legal, normDesc,
 } from "@/lib/financeiro/engine";
+import { CustoVariavelReal } from "./custo-variavel-real";
 import type {
   UnidadeConfig, InvestimentoCategoria, LancamentoMes,
 } from "@/lib/financeiro/queries";
@@ -36,35 +38,6 @@ import {
   salvarCustoVariavel, deletarCustoVariavel,
 } from "@/lib/financeiro/actions";
 import { LancarDespesasDialog } from "./lancar-despesas-dialog";
-
-// Lookup de despesa real pra um custo (fixo ou variável) por nome.
-// Tenta match exato por descrição, depois match por sinônimo de categoria.
-const SINONIMOS_DESPESA: Record<string, string[]> = {
-  "aluguel":          ["aluguel", "aluguel e iptu", "iptu"],
-  "energia eletrica": ["energia", "energia eletrica", "luz", "energia elétrica"],
-  "agua e esgoto":    ["agua", "agua e esgoto", "água", "água e esgoto"],
-  "internet":         ["telefone e internet", "telefone", "internet", "telecom"],
-  "marketing":        ["marketing", "publicidade", "publicidade local", "propaganda", "fundo de propaganda", "marketing inaugural"],
-  "manutencao":       ["manutencao", "manutenção", "reparos"],
-  "produtos quimicos": ["sabao", "amaciante", "csp", "sabao e amaciante", "produtos quimicos", "produtos químicos"],
-  "impostos":         ["impostos", "simples nacional", "iss", "icms"],
-  "folha de pagamento": ["folha", "salarios", "salário", "folha de pagamento"],
-};
-function normTxt(s: string): string {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
-}
-function mapearDespesaReal(custoDescricao: string, dm: DespesasMesData): number | null {
-  const n = normTxt(custoDescricao);
-  if (dm.por_descricao[n] != null) return dm.por_descricao[n];
-  for (const [catKey, sins] of Object.entries(SINONIMOS_DESPESA)) {
-    for (const sin of sins) {
-      if (n.includes(sin) && dm.por_categoria[catKey] != null) {
-        return dm.por_categoria[catKey];
-      }
-    }
-  }
-  return null;
-}
 
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -83,17 +56,11 @@ export type DespesaItem = {
   descricao: string;
   valor: number;
   vencimento: string;
+  competencia: string;   // "AAAA-MM"
   pago_em: string | null;
 };
 
-export type DespesasMesData = {
-  ano: number;
-  mes: number;
-  itens: DespesaItem[];
-  por_categoria: Record<string, number>;   // chave normalizada → soma
-  por_descricao: Record<string, number>;   // chave normalizada → soma
-  total: number;
-};
+const chaveMes = (ano: number, mes: number) => `${ano}-${String(mes).padStart(2, "0")}`;
 
 export type FinanceiroData = {
   unidades: Unidade[];
@@ -103,7 +70,7 @@ export type FinanceiroData = {
   custos_fixos: CustoFixo[];
   custos_variaveis: CustoVariavel[];
   lancamentos: LancamentoMes[];
-  despesas_mes: DespesasMesData;
+  despesas_por_mes: Record<string, DespesaItem[]>;
   engenharia: EngenhariaCustos | null;
   margem: MargemUnidade | null;
 };
@@ -126,6 +93,19 @@ export function FinanceiroView(props: FinanceiroData) {
     return m;
   }, [data.lancamentos]);
 
+  // Valores pagos (despesas reais) por mês → substituem o projetado no DRE do mês
+  const overridesPorMes = React.useMemo(() => {
+    const custos = [
+      ...data.custos_fixos.map((c) => ({ descricao: c.descricao, ativo: c.ativo, tipo: "fixo" })),
+      ...data.custos_variaveis.map((c) => ({ descricao: c.descricao, ativo: c.ativo, tipo: c.tipo })),
+    ];
+    const m = new Map<string, Map<string, number>>();
+    for (const [k, itens] of Object.entries(data.despesas_por_mes)) {
+      m.set(k, mapearDespesasReais(custos, itens.map((d) => ({ descricao: d.descricao, categoria: d.categoria_nome, valor: d.valor }))));
+    }
+    return m;
+  }, [data.custos_fixos, data.custos_variaveis, data.despesas_por_mes]);
+
   const projecao = React.useMemo(() => projetar60Meses({
     mes_inicio: data.config?.mes_inauguracao ?? new Date().getMonth() + 1,
     ano_inicio: data.config?.ano_inauguracao ?? new Date().getFullYear(),
@@ -134,7 +114,8 @@ export function FinanceiroView(props: FinanceiroData) {
     custos_variaveis: data.custos_variaveis,
     investimento_total: investimentoTotalProjetado,
     lancamentos: lancamentosMap,
-  }), [data.config, data.custos_fixos, data.custos_variaveis, investimentoTotalProjetado, lancamentosMap]);
+    overridesPorMes,
+  }), [data.config, data.custos_fixos, data.custos_variaveis, investimentoTotalProjetado, lancamentosMap, overridesPorMes]);
 
   const payback = React.useMemo(
     () => calcularPayback(projecao, investimentoTotalProjetado),
@@ -200,6 +181,7 @@ export function FinanceiroView(props: FinanceiroData) {
             data={data}
             investimentoTotal={investimentoTotalProjetado}
             margem={data.margem}
+            overridesPorMes={overridesPorMes}
           />
         </Tabs.Content>
 
@@ -221,6 +203,7 @@ export function FinanceiroView(props: FinanceiroData) {
             data={data}
             investimentoTotal={investimentoTotalProjetado}
             mesAtualIdx={mesAtualIdx}
+            overridesPorMes={overridesPorMes}
           />
         </Tabs.Content>
 
@@ -233,6 +216,8 @@ export function FinanceiroView(props: FinanceiroData) {
             custosFixos={data.custos_fixos}
             custosVariaveis={data.custos_variaveis}
             projecao={projecao}
+            lancamentos={data.lancamentos}
+            despesasPorMes={data.despesas_por_mes}
           />
           {data.engenharia && <EngenhariaCustosEditor unidadeId={unidadeAtiva} engenharia={data.engenharia} />}
         </Tabs.Content>
@@ -272,18 +257,17 @@ export function UnidadeSwitcher({ unidades, ativa, onChange }: { unidades: Unida
 // ────────────────────────────────────────────────────────────
 // PAINEL GERAL
 // ────────────────────────────────────────────────────────────
-function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal, margem }: {
+function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal, margem, overridesPorMes }: {
   projecao: ProjecaoMes[]; payback: ReturnType<typeof calcularPayback>;
   mesAtualIdx: number; data: FinanceiroData; investimentoTotal: number;
-  margem: MargemUnidade | null;
+  margem: MargemUnidade | null; overridesPorMes: Map<string, Map<string, number>>;
 }) {
   const mesAtual = projecao[mesAtualIdx - 1];
   const fatRealMes = mesAtual?.faturamento_real ?? 0;
   const resultadoMes = mesAtual?.resultado_real ?? 0;
 
   // Break-even pra referência no gráfico (usa custos da unidade)
-  const fatHist = projecao.slice(0, mesAtualIdx).map((p) => p.faturamento_real ?? 0);
-  const rbt12 = fatHist.slice(-12).reduce((s, v) => s + v, 0);
+  const rbt12 = mesAtual?.rbt12 ?? 0;
   const breakEven = calcularBreakEven({
     custos_fixos: data.custos_fixos,
     custos_variaveis: data.custos_variaveis,
@@ -320,19 +304,7 @@ function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal, 
 
   // DRE do mês atual com despesas reais lançadas (mesma lógica da aba DRE Mensal).
   // Source da verdade pro card "Despesas DRE".
-  const overridesPainel = React.useMemo(() => {
-    if (data.despesas_mes.ano !== mesAtual?.ano || data.despesas_mes.mes !== mesAtual?.mes) return undefined;
-    const m = new Map<string, number>();
-    for (const cf of data.custos_fixos) {
-      const v = mapearDespesaReal(cf.descricao, data.despesas_mes);
-      if (v != null) m.set(cf.descricao, v);
-    }
-    for (const cv of data.custos_variaveis) {
-      const v = mapearDespesaReal(cv.descricao, data.despesas_mes);
-      if (v != null) m.set(cv.descricao, v);
-    }
-    return m;
-  }, [data.custos_fixos, data.custos_variaveis, data.despesas_mes, mesAtual?.ano, mesAtual?.mes]);
+  const overridesPainel = mesAtual ? overridesPorMes.get(chaveMes(mesAtual.ano, mesAtual.mes)) : undefined;
 
   const dreMesPainel = React.useMemo(() => {
     if (!mesAtual || fatRealMes <= 0) return null;
@@ -1174,8 +1146,9 @@ function SimpleStat({ icon: Icon, label, valor, tone }: { icon: React.ElementTyp
 // ────────────────────────────────────────────────────────────
 // DRE MENSAL
 // ────────────────────────────────────────────────────────────
-function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }: {
+function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx, overridesPorMes }: {
   unidadeId: string; projecao: ProjecaoMes[]; data: FinanceiroData; investimentoTotal: number; mesAtualIdx: number;
+  overridesPorMes: Map<string, Map<string, number>>;
 }) {
   const [mesIdx, setMesIdx] = React.useState(mesAtualIdx);
   const mes = projecao[mesIdx - 1];
@@ -1190,25 +1163,22 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
   }, [mesIdx, data.lancamentos]);
 
   if (!mes) return null;
-  const fatHist = projecao.slice(0, mesIdx).map((p) => p.faturamento_real ?? 0);
-  const rbt12 = fatHist.slice(-12).reduce((s, v) => s + v, 0);
-
-  // Overrides de despesas reais — só quando o mês selecionado bate com data.despesas_mes
-  const overrides = React.useMemo(() => {
-    if (data.despesas_mes.ano !== mes.ano || data.despesas_mes.mes !== mes.mes) return undefined;
-    const m = new Map<string, number>();
-    for (const cf of data.custos_fixos) {
-      const v = mapearDespesaReal(cf.descricao, data.despesas_mes);
-      if (v != null) m.set(cf.descricao, v);
-    }
-    for (const cv of data.custos_variaveis) {
-      const v = mapearDespesaReal(cv.descricao, data.despesas_mes);
-      if (v != null) m.set(cv.descricao, v);
-    }
-    return m;
-  }, [data.custos_fixos, data.custos_variaveis, data.despesas_mes, mes.ano, mes.mes]);
-
   const fatRealNum = fatReal.trim() ? parseFloat(fatReal.replace(",", ".")) : null;
+  // Mesma base do Simples da projeção: 12 meses ANTERIORES (real, senão projetado)
+  const anteriores = projecao.slice(0, mesIdx - 1).map((p) => p.faturamento_real ?? p.faturamento_projetado);
+  const rbt12 = rbt12Legal(anteriores, fatRealNum ?? 0);
+  const chave = chaveMes(mes.ano, mes.mes);
+  const overrides = overridesPorMes.get(chave);
+  const despesasDoMes = data.despesas_por_mes[chave] ?? [];
+  const totalDespesasMes = despesasDoMes.reduce((s, d) => s + d.valor, 0);
+  const porDescricaoMes: Record<string, number> = {};
+  const porCategoriaMes: Record<string, number> = {};
+  for (const d of despesasDoMes) {
+    const kd = normDesc(d.descricao), kc = normDesc(d.categoria_nome);
+    porDescricaoMes[kd] = (porDescricaoMes[kd] ?? 0) + d.valor;
+    porCategoriaMes[kc] = (porCategoriaMes[kc] ?? 0) + d.valor;
+  }
+
   const dreReal = fatRealNum != null ? calcularDRE({
     faturamento: fatRealNum, rbt12, mes_index: mesIdx,
     custos_fixos: data.custos_fixos, custos_variaveis: data.custos_variaveis,
@@ -1256,14 +1226,12 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
           {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />} Salvar
         </Button>
         <Button size="sm" variant="outline" disabled={lanc?.fonte === "vendas"} onClick={async () => { setFatReal(""); await lancarFaturamentoMes({ unidade_id: unidadeId, mes_index: mesIdx, ano: mes.ano, mes: mes.mes, faturamento_real: null }); }}>Limpar</Button>
-        {data.despesas_mes.ano === mes.ano && data.despesas_mes.mes === mes.mes && (
-          <Button size="sm" variant="outline"
-            onClick={() => setDespesasOpen(true)}
-            className="border-brand-cyan/40 text-brand-cyan hover:bg-brand-cyan/10">
-            <Wallet className="w-3.5 h-3.5 mr-1" />
-            Lançar despesas do mês{data.despesas_mes.total > 0 ? ` (${fmtBRL(data.despesas_mes.total)} já lançado)` : ""}
-          </Button>
-        )}
+        <Button size="sm" variant="outline"
+          onClick={() => setDespesasOpen(true)}
+          className="border-brand-cyan/40 text-brand-cyan hover:bg-brand-cyan/10">
+          <Wallet className="w-3.5 h-3.5 mr-1" />
+          Lançar despesas do mês{totalDespesasMes > 0 ? ` (${fmtBRL(totalDespesasMes)} já lançado)` : ""}
+        </Button>
         {dreReal && <AlertaResultado resultado={dreReal.resultado_liquido} margem={dreReal.margem_operacional} />}
       </div>
 
@@ -1277,8 +1245,8 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx }
         custosFixos={data.custos_fixos}
         custosVariaveis={data.custos_variaveis}
         faturamentoReal={fatRealNum}
-        porDescricaoExistente={data.despesas_mes.por_descricao}
-        porCategoriaExistente={data.despesas_mes.por_categoria}
+        porDescricaoExistente={porDescricaoMes}
+        porCategoriaExistente={porCategoriaMes}
       />
 
       {dreReal ? (
@@ -1429,10 +1397,26 @@ export function Projecao60Meses({ projecao, mesAtualIdx }: { projecao: ProjecaoM
 // ────────────────────────────────────────────────────────────
 // CONFIGURAÇÕES
 // ────────────────────────────────────────────────────────────
-function Configuracoes({ unidadeId, unidadeNome, config, custosFixos, custosVariaveis, projecao }: {
+function Configuracoes({ unidadeId, unidadeNome, config, custosFixos, custosVariaveis, projecao, lancamentos, despesasPorMes }: {
   unidadeId: string; unidadeNome: string; config: UnidadeConfig | null;
   custosFixos: CustoFixo[]; custosVariaveis: CustoVariavel[]; projecao: ProjecaoMes[];
+  lancamentos: LancamentoMes[]; despesasPorMes: Record<string, DespesaItem[]>;
 }) {
+  // Quantos meses com valor pago cada custo variável tem (o % deles é recalibrado)
+  const mesesPagos = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const itens of Object.values(despesasPorMes)) {
+      const vistos = new Set<string>();
+      for (const d of itens) {
+        const n = normDesc(d.descricao);
+        if (vistos.has(n)) continue;
+        vistos.add(n);
+        m[n] = (m[n] ?? 0) + 1;
+      }
+    }
+    return m;
+  }, [despesasPorMes]);
+
   const [c, setC] = React.useState({
     responsavel_nome: config?.responsavel_nome ?? "",
     tipo_unidade: config?.tipo_unidade ?? "franquia",
@@ -1510,7 +1494,10 @@ function Configuracoes({ unidadeId, unidadeNome, config, custosFixos, custosVari
       <CustosFixosEditor unidadeId={unidadeId} custos={custosFixos} />
 
       {/* Custos variáveis */}
-      <CustosVariaveisEditor unidadeId={unidadeId} custos={custosVariaveis} />
+      <CustosVariaveisEditor unidadeId={unidadeId} custos={custosVariaveis} mesesPagos={mesesPagos} />
+
+      {/* Custo variável pelo valor pago (R$) */}
+      <CustoVariavelReal unidadeId={unidadeId} custos={custosVariaveis} lancamentos={lancamentos} despesasPorMes={despesasPorMes} />
 
       {/* Premissas */}
       <div className="rounded-2xl border border-border bg-muted/20 p-4 text-[11px] text-muted-foreground">
@@ -1616,12 +1603,12 @@ function CustoFixoRow({ custo, unidadeId, onClose }: { custo: CustoFixo | null; 
   );
 }
 
-function CustosVariaveisEditor({ unidadeId, custos }: { unidadeId: string; custos: CustoVariavel[] }) {
+function CustosVariaveisEditor({ unidadeId, custos, mesesPagos }: { unidadeId: string; custos: CustoVariavel[]; mesesPagos: Record<string, number> }) {
   const [novoOpen, setNovoOpen] = React.useState(false);
   return (
     <div className="rounded-2xl border border-border bg-card overflow-hidden">
       <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-        <div className="font-display font-bold inline-flex items-center gap-1.5"><Percent className="w-4 h-4 text-brand-cyan" /> Custos variáveis (% do faturamento)</div>
+        <div className="font-display font-bold inline-flex items-center gap-1.5"><Percent className="w-4 h-4 text-brand-cyan" /> Custos variáveis (% do faturamento ou valor pago)</div>
         <Button size="sm" onClick={() => setNovoOpen(true)} className="bg-brand-cyan text-primary-foreground"><Plus className="w-3 h-3 mr-1" /> Adicionar</Button>
       </div>
       <div className="overflow-x-auto">
@@ -1636,7 +1623,7 @@ function CustosVariaveisEditor({ unidadeId, custos }: { unidadeId: string; custo
             <th className="text-right py-2 px-3 font-semibold">Ações</th>
           </tr></thead>
           <tbody>
-            {custos.map((c) => <CustoVarRow key={c.id} custo={c} unidadeId={unidadeId} />)}
+            {custos.map((c) => <CustoVarRow key={c.id} custo={c} unidadeId={unidadeId} mesesPagos={mesesPagos[normDesc(c.descricao)] ?? 0} />)}
             {novoOpen && <CustoVarRow custo={null} unidadeId={unidadeId} onClose={() => setNovoOpen(false)} />}
           </tbody>
         </table>
@@ -1645,7 +1632,7 @@ function CustosVariaveisEditor({ unidadeId, custos }: { unidadeId: string; custo
   );
 }
 
-function CustoVarRow({ custo, unidadeId, onClose }: { custo: CustoVariavel | null; unidadeId: string; onClose?: () => void }) {
+function CustoVarRow({ custo, unidadeId, onClose, mesesPagos = 0 }: { custo: CustoVariavel | null; unidadeId: string; onClose?: () => void; mesesPagos?: number }) {
   const [editing, setEditing] = React.useState(custo == null);
   const [d, setD] = React.useState({
     descricao: custo?.descricao ?? "",
@@ -1691,7 +1678,14 @@ function CustoVarRow({ custo, unidadeId, onClose }: { custo: CustoVariavel | nul
         custo!.tipo === "simples" ? "bg-warning/15 text-warning" :
         custo!.tipo === "csp" ? "bg-brand-cyan/15 text-brand-cyan" :
         custo!.tipo === "royalties" ? "bg-warning/15 text-warning" : "bg-success/15 text-success")}>{custo!.tipo}</span></td>
-      <td className="py-1.5 px-3 text-right font-mono">{custo!.percentual_faturamento != null ? `${custo!.percentual_faturamento}%` : "Auto"}</td>
+      <td className="py-1.5 px-3 text-right font-mono">
+        {custo!.percentual_faturamento != null ? `${custo!.percentual_faturamento.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%` : "Auto"}
+        {mesesPagos > 0 && custo!.tipo !== "simples" && (
+          <span title="% recalculado pela média dos valores pagos" className="ml-1.5 px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-success/15 text-success border border-success/30">
+            real · {mesesPagos} {mesesPagos === 1 ? "mês" : "meses"}
+          </span>
+        )}
+      </td>
       <td className="py-1.5 px-3 text-right font-mono text-muted-foreground">{custo!.valor_minimo ? fmtBRL(custo!.valor_minimo) : "—"}</td>
       <td className="py-1.5 px-3 text-right font-mono text-muted-foreground">{custo!.a_partir_do_mes ?? "—"}</td>
       <td className="py-1.5 px-3 text-center">{custo!.ativo ? <span className="text-success text-[10px] font-bold">SIM</span> : <span className="text-muted-foreground text-[10px]">NÃO</span>}</td>
