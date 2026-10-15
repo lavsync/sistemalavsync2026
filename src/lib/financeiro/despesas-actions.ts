@@ -72,8 +72,8 @@ function resolvedorCategoria(sb: SB, tenant_id: string) {
     }
     return cache;
   }
-  return async (nome: string | null | undefined, padraoDe?: string): Promise<string | null> => {
-    const final = (nome ?? "").trim() || (padraoDe ? nomeCategoriaFinanceira(padraoDe) : "");
+  return async (nome: string | null | undefined, padraoDe?: string, tipoCusto?: "fixo" | "variavel"): Promise<string | null> => {
+    const final = (nome ?? "").trim() || (padraoDe ? nomeCategoriaFinanceira(padraoDe, tipoCusto) : "");
     if (!final) return null;
     const mapa = await carregar();
     const hit = mapa.get(normDesc(final));
@@ -117,6 +117,10 @@ export async function lancarDespesasLote(
     if (!COMPETENCIA.test(competencia)) return { ok: false, erro: "Competência inválida" };
     const { sb, tenant_id } = await contexto(unidadeId);
     const categoria = resolvedorCategoria(sb, tenant_id);
+    const { data: fixos, error: eFix } = await sb.from("financeiro_custos_fixos")
+      .select("descricao").eq("unidade_id", unidadeId);
+    if (eFix) return { ok: false, erro: eFix.message };
+    const descFixos = new Set(((fixos ?? []) as Array<{ descricao: string }>).map((f) => normDesc(f.descricao)));
     const [ini, fim] = competenciaRange(competencia);
     const hoje = todayBRiso();
 
@@ -192,7 +196,8 @@ export async function lancarDespesasLote(
             ...comum,
             tenant_id,
             unidade_id: unidadeId,
-            categoria_id: await categoria(it.categoria_nome, it.origem === "custo" ? descricao : undefined),
+            categoria_id: await categoria(it.categoria_nome, it.origem === "custo" ? descricao : undefined,
+              descFixos.has(normDesc(descricao)) ? "fixo" : "variavel"),
             data_competencia: ini,
             periodicidade: "mensal" as const,
           };

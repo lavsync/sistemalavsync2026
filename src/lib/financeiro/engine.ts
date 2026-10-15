@@ -114,10 +114,14 @@ const NOME_CATEGORIA: Record<string, string> = {
   "folha de pagamento": "Folha de pagamento",
 };
 
-/** Nome da categoria financeira em que a despesa real de um custo é gravada. */
-export function nomeCategoriaFinanceira(descricaoCusto: string): string {
+/**
+ * Nome da categoria financeira em que a despesa real de um custo é gravada.
+ * Sem sinônimo conhecido: custo fixo vai para "Outras"; variável, "Custos variáveis".
+ */
+export function nomeCategoriaFinanceira(descricaoCusto: string, tipo: "fixo" | "variavel" = "variavel"): string {
   const cat = categoriaDoCusto(descricaoCusto);
-  return cat ? NOME_CATEGORIA[cat] : "Custos variáveis";
+  if (cat) return NOME_CATEGORIA[cat];
+  return tipo === "fixo" ? "Outras" : "Custos variáveis";
 }
 
 export function mapearDespesasReais(

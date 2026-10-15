@@ -422,7 +422,7 @@ export function LancarDespesasDialog({
                                     <>
                                       <td className="py-2 px-2 align-top">
                                         <input value={it.categoria} list={listId} aria-label="Categoria" disabled={saving}
-                                          placeholder={it.origem === "fixo" || it.origem === "variavel" ? nomeCategoriaFinanceira(it.descricao) : "Sem categoria"}
+                                          placeholder={it.origem === "fixo" || it.origem === "variavel" ? nomeCategoriaFinanceira(it.descricao, it.origem) : "Sem categoria"}
                                           onChange={(e) => alterar(it.key, { categoria: e.target.value })}
                                           className="form-input text-[11px] py-1 w-36" />
                                       </td>
