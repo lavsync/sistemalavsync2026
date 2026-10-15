@@ -643,7 +643,9 @@ function EngenhariaCustosEditor({ unidadeId, engenharia }: {
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
 
-  React.useEffect(() => { setC(engenharia); }, [engenharia]);
+  // Props novas (após refresh) → estado local volta ao salvo (ajuste no render, sem efeito)
+  const [engPrev, setEngPrev] = React.useState(engenharia);
+  if (engPrev !== engenharia) { setEngPrev(engenharia); setC(engenharia); }
 
   function patch<K extends keyof EngenhariaCustos>(k: K, v: EngenhariaCustos[K]) {
     setC((s) => ({ ...s, [k]: v }));
@@ -785,7 +787,8 @@ function Campo({ label, value, onChange, prefix, suffix, decimals = 2 }: {
   prefix?: string; suffix?: string; decimals?: number;
 }) {
   const [local, setLocal] = React.useState(value.toString().replace(".", ","));
-  React.useEffect(() => { setLocal(value.toString().replace(".", ",")); }, [value]);
+  const [valuePrev, setValuePrev] = React.useState(value);
+  if (valuePrev !== value) { setValuePrev(value); setLocal(value.toString().replace(".", ",")); }
   return (
     <div className="flex items-center gap-2">
       <label className="text-[11px] text-muted-foreground flex-1">{label}</label>
@@ -974,6 +977,8 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx, 
 
   function salvar() {
     if (!sujo || invalido || saving) return;
+    // Campo apagado = apagar o faturamento: passa pela mesma confirmação do Limpar
+    if (parsed == null && salvoNum != null) { setConfirmLimpar(true); setFb(null); return; }
     void gravar(parsed, "salvar");
   }
 
@@ -1041,7 +1046,7 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx, 
           {!daVendas && confirmLimpar && (
             <span className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-2 py-1">
               <span className="text-[12px]">Apagar o faturamento de {rotulo}?</span>
-              <Button size="sm" variant="outline" disabled={saving != null} onClick={() => setConfirmLimpar(false)}>Cancelar</Button>
+              <Button size="sm" variant="outline" disabled={saving != null} onClick={() => { setConfirmLimpar(false); setFatReal(txtSalvo); }}>Cancelar</Button>
               <Button size="sm" disabled={saving != null} onClick={() => void gravar(null, "limpar")} className="bg-danger text-white hover:bg-danger/90">
                 {saving === "limpar" ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 mr-1" />} Apagar
               </Button>

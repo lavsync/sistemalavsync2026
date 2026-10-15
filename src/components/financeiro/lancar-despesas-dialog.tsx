@@ -1,19 +1,20 @@
 "use client";
 
 // Financeiro › DRE Mensal · Diálogo "Lançar despesas do mês"
-// Linhas: custos configurados (valor lançado, senão o projetado do motor do DRE),
-// despesas avulsas do mês e novas avulsas. Marca o que já foi pago e salva só o
-// que mudou ou ainda não foi lançado. O pai remonta o diálogo a cada abertura
-// (key), então o estado sempre nasce dos lançamentos atuais.
+// Linhas: custos configurados (valor lançado; sem lançamento, campo vazio com o
+// projetado do motor do DRE como sugestão), despesas avulsas do mês e novas
+// avulsas. O casamento custo → despesa é o MESMO do motor (descrição, depois
+// categoria). Só vai para o banco o que o operador digitou, aceitou ("Usar
+// projetado") ou alterou. O pai remonta o diálogo a cada abertura (key).
 
 import * as React from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { Wallet, X, Loader2, Save, Check, Plus, AlertTriangle, CheckCheck, Square } from "lucide-react";
+import { Wallet, X, Loader2, Save, Check, Plus, AlertTriangle, CheckCheck, Square, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { normDesc, nomeCategoriaFinanceira, type CustoFixo, type CustoVariavel } from "@/lib/financeiro/engine";
+import { casamentoDespesasPorCusto, nomeCategoriaFinanceira, type CustoFixo, type CustoVariavel } from "@/lib/financeiro/engine";
 import { parseValorBR, formatValorBR } from "@/lib/financeiro/valor-br";
 import { lancarDespesasLote, type LancarDespesaItem } from "@/lib/financeiro/despesas-actions";
 import type { DespesaItem, CategoriaDespesa } from "./financeiro-view";
@@ -29,6 +30,10 @@ type Item = {
   key: string;
   origem: Origem;
   descricao: string;
+  /** Descrição gravada na despesa vinculada (casamento por categoria preserva o nome dela). */
+  desc_gravada: string | null;
+  /** Casou pela categoria: nome da despesa que cobre este custo. */
+  vinculo: string | null;
   categoria: string;
   valor: string;
   vencimento: string;
@@ -48,6 +53,14 @@ const snap = (i: Item): Snap => ({
 const igual = (a: Snap, b: Snap) =>
   a.descricao === b.descricao && a.categoria === b.categoria && a.valor === b.valor && a.vencimento === b.vencimento && a.pago === b.pago;
 
+/** Linha que não vai para o banco: custo sem lançamento e sem valor, ou avulsa nova em branco. */
+function ehPulada(i: Item): boolean {
+  if (i.despesa_id != null || i.duplicadas > 1) return false;
+  const vazio = i.valor.trim() === "";
+  if (i.origem === "nova") return vazio && !i.descricao.trim();
+  return vazio || parseValorBR(i.valor) === 0;
+}
+
 function montarItens(
   ano: number, mes: number,
   custosFixos: CustoFixo[], custosVariaveis: CustoVariavel[],
@@ -56,43 +69,54 @@ function montarItens(
   const venc05 = `${ano}-${String(mes).padStart(2, "0")}-05`;
   const out: Item[] = [];
   const consumidas = new Set<string>();
+  // Mesma lista e ordem do motor do DRE (financeiro-view → overridesPorMes)
+  const casamento = casamentoDespesasPorCusto(
+    [
+      ...custosFixos.map((c) => ({ descricao: c.descricao, ativo: c.ativo, tipo: "fixo" })),
+      ...custosVariaveis.map((c) => ({ descricao: c.descricao, ativo: c.ativo, tipo: c.tipo as string })),
+    ],
+    despesasDoMes.map((d) => ({ descricao: d.descricao, categoria: d.categoria_nome, valor: d.valor })),
+  );
   const custos: Array<{ id: string; descricao: string; origem: "fixo" | "variavel" }> = [
     ...custosFixos.filter((c) => c.ativo).map((c) => ({ id: c.id, descricao: c.descricao, origem: "fixo" as const })),
     ...custosVariaveis.filter((c) => c.ativo && c.tipo !== "simples").map((c) => ({ id: c.id, descricao: c.descricao, origem: "variavel" as const })),
   ];
+  const semCat = (nome: string) => (nome === "Sem categoria" ? "" : nome);
   for (const c of custos) {
-    const n = normDesc(c.descricao);
-    const matches = despesasDoMes.filter((d) => normDesc(d.descricao) === n);
+    const m = casamento.get(c.descricao);
+    const matches = m ? m.indices.map((i) => despesasDoMes[i]) : [];
     matches.forEach((d) => consumidas.add(d.id));
     const projetado = projetadoPorDescricao[c.descricao] ?? 0;
-    const catPadrao = nomeCategoriaFinanceira(c.descricao);
+    const base = { key: `${c.origem}-${c.id}`, origem: c.origem, descricao: c.descricao, projetado };
     if (matches.length === 1) {
       const d = matches[0];
       out.push({
-        key: `${c.origem}-${c.id}`, origem: c.origem, descricao: c.descricao,
-        categoria: d.categoria_nome && d.categoria_nome !== "Sem categoria" ? d.categoria_nome : catPadrao,
+        ...base, desc_gravada: d.descricao, vinculo: m?.via === "categoria" ? d.descricao : null,
+        categoria: semCat(d.categoria_nome),
         valor: formatValorBR(d.valor), vencimento: d.vencimento,
-        pago: d.status === "paga", pago_em: d.pago_em, despesa_id: d.id, projetado, duplicadas: 1,
+        pago: d.status === "paga", pago_em: d.pago_em, despesa_id: d.id, duplicadas: 1,
       });
     } else if (matches.length > 1) {
       out.push({
-        key: `${c.origem}-${c.id}`, origem: c.origem, descricao: c.descricao, categoria: matches[0].categoria_nome,
+        ...base, desc_gravada: null, vinculo: m?.via === "categoria" ? matches.map((d) => d.descricao).join(", ") : null,
+        categoria: semCat(matches[0].categoria_nome),
         valor: formatValorBR(matches.reduce((s, d) => s + d.valor, 0)), vencimento: matches[0].vencimento,
-        pago: matches.every((d) => d.status === "paga"), pago_em: null, despesa_id: null, projetado, duplicadas: matches.length,
+        pago: matches.every((d) => d.status === "paga"), pago_em: null, despesa_id: null, duplicadas: matches.length,
       });
     } else {
+      // Sem lançamento: valor vazio — o projetado é só sugestão ("Usar projetado")
       out.push({
-        key: `${c.origem}-${c.id}`, origem: c.origem, descricao: c.descricao, categoria: catPadrao,
-        valor: projetado > 0 ? formatValorBR(projetado) : "", vencimento: venc05,
-        pago: false, pago_em: null, despesa_id: null, projetado, duplicadas: 0,
+        ...base, desc_gravada: null, vinculo: null, categoria: "",
+        valor: "", vencimento: venc05,
+        pago: false, pago_em: null, despesa_id: null, duplicadas: 0,
       });
     }
   }
   for (const d of despesasDoMes) {
     if (consumidas.has(d.id)) continue;
     out.push({
-      key: `avulsa-${d.id}`, origem: "avulsa", descricao: d.descricao,
-      categoria: d.categoria_nome === "Sem categoria" ? "" : d.categoria_nome,
+      key: `avulsa-${d.id}`, origem: "avulsa", descricao: d.descricao, desc_gravada: d.descricao, vinculo: null,
+      categoria: semCat(d.categoria_nome),
       valor: formatValorBR(d.valor), vencimento: d.vencimento,
       pago: d.status === "paga", pago_em: d.pago_em, despesa_id: d.id, projetado: null, duplicadas: 1,
     });
@@ -142,27 +166,33 @@ export function LancarDespesasDialog({
   React.useEffect(() => () => { if (fecharTimer.current) clearTimeout(fecharTimer.current); }, []);
 
   // ── Estado derivado ──
-  const editaveis = itens.filter((i) => i.duplicadas <= 1);
   const linhas = itens.map((i) => {
     const v = parseValorBR(i.valor);
     const vazio = i.valor.trim() === "";
     const lancada = i.despesa_id != null;
-    // Linha nunca lançada com valor vazio/zero = "não lançar" (não é erro)
-    const pulada = !lancada && (vazio || v === 0);
-    const invalida = i.duplicadas <= 1 && !pulada && !(v != null && v > 0);
-    const semDescricao = i.duplicadas <= 1 && !pulada && !i.descricao.trim();
+    const bloqueada = i.duplicadas > 1;
+    const pulada = ehPulada(i);
+    const invalida = !bloqueada && !pulada && !(v != null && v > 0);
+    const erroValor = !invalida ? null
+      : vazio ? (lancada ? "Informe o valor ou exclua na lista Despesas lançadas" : "Informe o valor")
+      : v == null ? "Valor inválido. Use 1.234,56"
+      : "Valor deve ser maior que zero";
+    const semDescricao = !bloqueada && !pulada && !i.descricao.trim();
     const b = base[i.key];
     const editada = !b || !igual(snap(i), b);
-    const pendente = i.duplicadas <= 1 && !pulada && !invalida && !semDescricao && (editada || !lancada);
-    return { item: i, v, pulada, invalida, semDescricao, editada, pendente };
+    const pendente = !bloqueada && !pulada && !invalida && !semDescricao && editada;
+    return { item: i, v, pulada, invalida, erroValor, semDescricao, editada, pendente };
   });
   const pendentes = linhas.filter((l) => l.pendente);
   const temInvalida = linhas.some((l) => l.invalida || l.semDescricao);
-  const editadasUsuario = linhas.filter((l) => l.editada && !(l.item.origem === "nova" && !l.item.descricao.trim() && !l.item.valor.trim())).length;
-  const nPagas = editaveis.filter((i) => i.pago).length;
-  const total = linhas.reduce((s, l) => s + (l.item.duplicadas <= 1 && l.v ? l.v : 0), 0);
+  const editadasUsuario = linhas.filter((l) => l.editada && !(l.item.origem === "nova" && l.pulada)).length;
+  // Contagem de pagas só entre as linhas que vão (ou já foram) para o banco
+  const aLancar = linhas.filter((l) => l.item.duplicadas <= 1 && !l.pulada);
+  const nPagas = aLancar.filter((l) => l.item.pago).length;
+  const total = aLancar.reduce((s, l) => s + (l.v ?? 0), 0);
   const projetadoTotal = itens.reduce((s, i) => s + (i.projetado ?? 0), 0);
-  const pagasTotal = linhas.reduce((s, l) => s + (l.item.pago && l.item.duplicadas <= 1 && l.v ? l.v : 0), 0);
+  const pagasTotal = aLancar.reduce((s, l) => s + (l.item.pago && l.v ? l.v : 0), 0);
+  const nSugestoes = itens.filter((i) => i.despesa_id == null && i.duplicadas === 0 && i.origem !== "nova" && i.valor.trim() === "" && (i.projetado ?? 0) > 0).length;
 
   function alterar(key: string, patch: Partial<Item>) {
     setItens((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
@@ -170,14 +200,33 @@ export function LancarDespesasDialog({
     setErro(null);
     if (falhas[key]) setFalhas((f) => { const n = { ...f }; delete n[key]; return n; });
   }
+  function usarProjetado(key: string) {
+    const it = itens.find((x) => x.key === key);
+    if (it?.projetado) alterar(key, { valor: formatValorBR(it.projetado) });
+  }
+  function usarProjetadoNasVazias() {
+    setItens((xs) => xs.map((x) =>
+      x.despesa_id == null && x.duplicadas === 0 && x.origem !== "nova" && x.valor.trim() === "" && (x.projetado ?? 0) > 0
+        ? { ...x, valor: formatValorBR(x.projetado!) } : x));
+    setConfirmDescartar(false);
+    setErro(null);
+  }
+  /** Marcar como paga um custo ainda vazio aceita o projetado como valor (ação explícita). */
+  function alternarPagoLinha(it: Item, pago: boolean) {
+    const patch: Partial<Item> = { pago };
+    if (pago && it.origem !== "nova" && it.despesa_id == null && it.valor.trim() === "" && (it.projetado ?? 0) > 0) {
+      patch.valor = formatValorBR(it.projetado!);
+    }
+    alterar(it.key, patch);
+  }
   function marcarTodas(pago: boolean) {
-    setItens((xs) => xs.map((x) => (x.duplicadas <= 1 ? { ...x, pago } : x)));
+    setItens((xs) => xs.map((x) => (x.duplicadas <= 1 && !ehPulada(x) ? { ...x, pago } : x)));
     setConfirmDescartar(false);
   }
   function adicionarAvulsa() {
     const key = `nova-${++novaSeq.current}`;
     setItens((xs) => [...xs, {
-      key, origem: "nova", descricao: "", categoria: "", valor: "",
+      key, origem: "nova", descricao: "", desc_gravada: null, vinculo: null, categoria: "", valor: "",
       vencimento: `${ano}-${String(mes).padStart(2, "0")}-05`,
       pago: false, pago_em: null, despesa_id: null, projetado: null, duplicadas: 0,
     }]);
@@ -200,15 +249,22 @@ export function LancarDespesasDialog({
     setFalhas({});
     setDone(null);
     const envio = pendentes.map((l) => l.item);
-    const lote: LancarDespesaItem[] = envio.map((i) => ({
-      despesa_id: i.despesa_id,
-      descricao: i.descricao.trim(),
-      valor: parseValorBR(i.valor)!,
-      vencimento: i.vencimento,
-      categoria_nome: i.categoria.trim() || null,
-      pago: i.pago,
-      pago_em: i.pago ? i.pago_em : null,
-    }));
+    const lote: LancarDespesaItem[] = envio.map((i) => {
+      const b = base[i.key];
+      const cat = i.categoria.trim();
+      return {
+        despesa_id: i.despesa_id,
+        origem: i.origem === "fixo" || i.origem === "variavel" ? "custo" : "avulsa",
+        // Custo coberto por despesa de outro nome (casou pela categoria) mantém o nome dela
+        descricao: i.origem === "avulsa" || i.origem === "nova" ? i.descricao.trim() : (i.desc_gravada ?? i.descricao.trim()),
+        valor: parseValorBR(i.valor)!,
+        vencimento: i.vencimento,
+        // Despesa já gravada: categoria só vai se o operador mexeu nela
+        categoria_nome: i.despesa_id && b && b.categoria === cat ? undefined : cat || null,
+        pago: i.pago,
+        pago_em: i.pago ? i.pago_em : null,
+      };
+    });
     try {
       const r = await lancarDespesasLote(unidadeId, `${ano}-${String(mes).padStart(2, "0")}`, lote);
       if (!r.ok) { setErro(r.erro); return; }
@@ -265,7 +321,7 @@ export function LancarDespesasDialog({
                         Lançar despesas · {MESES_PT[mes - 1]}/{ano}
                       </Dialog.Title>
                       <Dialog.Description className="text-[12px] text-muted-foreground">
-                        Unidade {unidadeNome} · confira os valores, marque o que já foi pago e salve
+                        Unidade {unidadeNome} · informe o valor de cada custo (ou use o projetado), marque o que já foi pago e salve
                       </Dialog.Description>
                     </div>
                     <button type="button" onClick={pedirFechar} aria-label="Fechar"
@@ -274,14 +330,20 @@ export function LancarDespesasDialog({
 
                   {itens.length > 0 && (
                     <div className="px-5 py-2 border-b border-border flex flex-wrap items-center gap-2 bg-muted/10">
-                      <Button size="sm" variant="outline" onClick={() => marcarTodas(true)} disabled={saving}>
+                      {nSugestoes > 0 && (
+                        <Button size="sm" variant="outline" onClick={usarProjetadoNasVazias} disabled={saving}
+                          title="Preenche os custos sem lançamento com o valor projetado do DRE">
+                          <Sparkles className="w-3.5 h-3.5 mr-1" /> Usar projetado nos vazios ({nSugestoes})
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" onClick={() => marcarTodas(true)} disabled={saving || aLancar.length === 0}>
                         <CheckCheck className="w-3.5 h-3.5 mr-1" /> Marcar todas como pagas
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => marcarTodas(false)} disabled={saving}>
+                      <Button size="sm" variant="outline" onClick={() => marcarTodas(false)} disabled={saving || aLancar.length === 0}>
                         <Square className="w-3.5 h-3.5 mr-1" /> Desmarcar todas
                       </Button>
                       <span className="ml-auto text-[11px] text-muted-foreground font-mono">
-                        {nPagas} de {editaveis.length} pagas
+                        {nPagas} de {aLancar.length} pagas
                       </span>
                     </div>
                   )}
@@ -302,12 +364,12 @@ export function LancarDespesasDialog({
                             <th className="text-left py-2 px-2 font-semibold">Categoria</th>
                             <th className="text-right py-2 px-2 font-semibold">Valor</th>
                             <th className="text-left py-2 px-2 font-semibold">Vencimento</th>
-                            <th className="text-center py-2 px-2 font-semibold w-14">Pago</th>
+                            <th className="text-center py-2 px-2 font-semibold w-14">Paga</th>
                             <th className="w-8" />
                           </tr>
                         </thead>
                         <tbody>
-                          {linhas.map(({ item: it, invalida, semDescricao, pulada, editada }) => {
+                          {linhas.map(({ item: it, invalida, erroValor, semDescricao, pulada, editada }) => {
                             const bloqueada = it.duplicadas > 1;
                             const falha = falhas[it.key];
                             const descEditavel = it.origem === "avulsa" || it.origem === "nova";
@@ -332,22 +394,35 @@ export function LancarDespesasDialog({
                                       ) : (
                                         <span>{it.origem === "fixo" ? "Fixo" : "Variável"} · projetado {fmtBRL(it.projetado ?? 0)}</span>
                                       )}
-                                      {it.despesa_id && !bloqueada && <span className="text-success">· lançada</span>}
-                                      {pulada && <span>· não será lançada</span>}
+                                      {it.despesa_id && !bloqueada && (
+                                        <span className="text-success">· lançada{it.vinculo ? ` como “${it.vinculo}”` : ""}</span>
+                                      )}
+                                      {pulada && it.origem !== "nova" && (
+                                        <>
+                                          <span>· não lançada</span>
+                                          {(it.projetado ?? 0) > 0 && (
+                                            <button type="button" onClick={() => usarProjetado(it.key)} disabled={saving}
+                                              className="text-brand-cyan font-semibold hover:underline">
+                                              Usar projetado
+                                            </button>
+                                          )}
+                                        </>
+                                      )}
+                                      {pulada && it.origem === "nova" && <span>· preencha descrição e valor</span>}
                                     </div>
                                   </td>
                                   {bloqueada ? (
                                     <td colSpan={4} className="py-2 px-2 align-top text-[11px] text-warning">
                                       <span className="inline-flex items-start gap-1">
                                         <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                                        Há {it.duplicadas} lançamentos para este custo ({it.valor}). Ajuste na lista Despesas lançadas.
+                                        Há {it.duplicadas} lançamentos para este custo ({it.valor}{it.vinculo ? `: ${it.vinculo}` : ""}). Ajuste na lista Despesas lançadas.
                                       </span>
                                     </td>
                                   ) : (
                                     <>
                                       <td className="py-2 px-2 align-top">
                                         <input value={it.categoria} list={listId} aria-label="Categoria" disabled={saving}
-                                          placeholder={nomeCategoriaFinanceira(it.descricao || "-")}
+                                          placeholder={it.origem === "fixo" || it.origem === "variavel" ? nomeCategoriaFinanceira(it.descricao) : "Sem categoria"}
                                           onChange={(e) => alterar(it.key, { categoria: e.target.value })}
                                           className="form-input text-[11px] py-1 w-36" />
                                       </td>
@@ -356,7 +431,7 @@ export function LancarDespesasDialog({
                                           aria-invalid={invalida || undefined}
                                           onChange={(e) => alterar(it.key, { valor: e.target.value })}
                                           className={cn("form-input text-[11px] py-1 w-28 font-mono text-right", invalida && "border-danger")} />
-                                        {invalida && <div className="text-[10px] text-danger mt-0.5">Use 1.234,56</div>}
+                                        {erroValor && <div className="text-[10px] text-danger mt-0.5 max-w-[11rem] ml-auto text-right">{erroValor}</div>}
                                       </td>
                                       <td className="py-2 px-2 align-top">
                                         <input type="date" value={it.vencimento} aria-label="Vencimento" disabled={saving}
@@ -364,8 +439,9 @@ export function LancarDespesasDialog({
                                           className="form-input text-[11px] py-1 w-36 font-mono" />
                                       </td>
                                       <td className="py-2 px-2 text-center align-top">
-                                        <input type="checkbox" checked={it.pago} aria-label={`Pago: ${it.descricao || "despesa avulsa"}`} disabled={saving}
-                                          onChange={(e) => alterar(it.key, { pago: e.target.checked })}
+                                        <input type="checkbox" checked={it.pago} aria-label={`Paga: ${it.descricao || "despesa avulsa"}`} disabled={saving}
+                                          title={pulada && (it.projetado ?? 0) > 0 && it.origem !== "nova" ? "Marcar como paga usa o valor projetado" : undefined}
+                                          onChange={(e) => alternarPagoLinha(it, e.target.checked)}
                                           className="w-4 h-4 mt-1 accent-[var(--success)] cursor-pointer" />
                                       </td>
                                     </>
@@ -429,7 +505,7 @@ export function LancarDespesasDialog({
                           <>
                             <Button variant="outline" onClick={pedirFechar} disabled={saving}>Cancelar</Button>
                             <Button onClick={salvar} disabled={saving || n === 0 || temInvalida || !!done}
-                              title={temInvalida ? "Corrija os valores em vermelho" : n === 0 ? "Nenhuma alteração para salvar" : undefined}
+                              title={temInvalida ? "Corrija as linhas em vermelho" : n === 0 ? "Nenhuma alteração para salvar" : undefined}
                               className="bg-gradient-to-r from-brand-cyan to-brand-blue text-white">
                               {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />}
                               Salvar despesas ({n} {n === 1 ? "alteração" : "alterações"})

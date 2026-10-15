@@ -18,9 +18,18 @@ const COMPETENCIA = /^\d{4}-\d{2}$/;
 export type LancarDespesaItem = {
   /** Despesa já gravada — atualiza em vez de procurar/inserir. */
   despesa_id?: string | null;
+  /**
+   * "custo": linha de um custo configurado (fixo/variável) — sem despesa_id,
+   * casa com a do mês pela descrição. "avulsa": sem despesa_id é SEMPRE inserida.
+   */
+  origem: "custo" | "avulsa";
   descricao: string;
   valor: number;
   vencimento: string;          // YYYY-MM-DD
+  /**
+   * undefined = não mexe na categoria (atualização). Vazio/null = sem categoria;
+   * na inserção de linha de custo, vazio usa a categoria padrão do custo.
+   */
   categoria_nome?: string | null;
   pago: boolean;
   pago_em?: string | null;     // YYYY-MM-DD
@@ -44,7 +53,11 @@ async function contexto(unidadeId: string): Promise<{ sb: SB; tenant_id: string 
   return { sb, tenant_id: (unid as { tenant_id: string }).tenant_id };
 }
 
-/** Resolve categoria por nome (acento/maiúscula-insensível); cria se faltar. */
+/**
+ * Resolve categoria por nome (acento/maiúscula-insensível); cria se faltar.
+ * Nome vazio → null (sem categoria), a menos que `padraoDe` traga a descrição
+ * do custo: aí usa a categoria padrão dele.
+ */
 function resolvedorCategoria(sb: SB, tenant_id: string) {
   let cache: Map<string, string> | null = null;
   async function carregar() {
@@ -59,8 +72,9 @@ function resolvedorCategoria(sb: SB, tenant_id: string) {
     }
     return cache;
   }
-  return async (nome: string | null | undefined, descricao: string): Promise<string> => {
-    const final = (nome ?? "").trim() || nomeCategoriaFinanceira(descricao);
+  return async (nome: string | null | undefined, padraoDe?: string): Promise<string | null> => {
+    const final = (nome ?? "").trim() || (padraoDe ? nomeCategoriaFinanceira(padraoDe) : "");
+    if (!final) return null;
     const mapa = await carregar();
     const hit = mapa.get(normDesc(final));
     if (hit) return hit;
@@ -90,8 +104,9 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * Lança várias despesas da competência de uma vez (diálogo "Lançar despesas").
- * Sem despesa_id, casa com a existente do mês pela descrição normalizada —
- * inclusive a do dia 01 gravada por "Lançar custo variável pelo valor pago".
+ * Linha de custo sem despesa_id casa com a existente do mês pela descrição
+ * normalizada — inclusive a do dia 01 gravada por "Lançar custo variável pelo
+ * valor pago". Avulsa sem despesa_id é sempre um lançamento novo.
  */
 export async function lancarDespesasLote(
   unidadeId: string,
@@ -113,12 +128,15 @@ export async function lancarDespesasLote(
       .neq("status", "cancelada")
       .or(`and(data_competencia.gte.${ini},data_competencia.lte.${fim}),and(data_competencia.is.null,vencimento.gte.${ini},vencimento.lte.${fim})`);
     if (eMes) return { ok: false, erro: eMes.message };
+    // Só as que já existiam antes do lote servem de alvo do casamento por descrição
     const existentes = (doMes ?? []) as Exist[];
     const porId = new Map(existentes.map((d) => [d.id, d]));
+    const usadasNoLote = new Set<string>();
 
     let inseridas = 0, atualizadas = 0;
     const falhas: Array<{ indice: number; erro: string }> = [];
     const ids: Record<number, string> = {};
+    const recalibrar = new Set<string>();
 
     for (let i = 0; i < itens.length; i++) {
       const it = itens[i];
@@ -131,50 +149,71 @@ export async function lancarDespesasLote(
         let alvo: Exist | null = null;
         if (it.despesa_id) {
           alvo = porId.get(it.despesa_id) ?? null;
-        } else {
+          if (!alvo) { falhas.push({ indice: i, erro: "Despesa não encontrada neste mês. Feche e abra o diálogo de novo." }); continue; }
+        } else if (it.origem === "custo") {
           const n = normDesc(descricao);
           const iguais = existentes.filter((d) => normDesc(d.descricao) === n);
-          if (iguais.length > 1) { falhas.push({ indice: i, erro: "Duplicada: ajuste na lista Despesas lançadas" }); continue; }
+          if (iguais.length > 1) { falhas.push({ indice: i, erro: "Há mais de um lançamento para este custo: ajuste na lista Despesas lançadas" }); continue; }
           alvo = iguais[0] ?? null;
+        }
+        if (alvo) {
+          if (usadasNoLote.has(alvo.id)) { falhas.push({ indice: i, erro: "Esta despesa já foi alterada por outra linha do lote" }); continue; }
+          usadasNoLote.add(alvo.id);
         }
 
         const pago_em = it.pago
           ? (it.pago_em && ISO.test(it.pago_em) ? it.pago_em : (alvo?.status === "paga" && alvo.pago_em) || hoje)
           : null;
-        const payload = {
-          tenant_id,
-          unidade_id: unidadeId,
-          categoria_id: await categoria(it.categoria_nome, descricao),
+        const comum = {
           descricao,
           valor: Math.round(it.valor * 100) / 100,
           vencimento: it.vencimento,
-          data_competencia: ini,
           pago_em,
-          periodicidade: "mensal" as const,
           status: it.pago ? ("paga" as const) : ("aberta" as const),
         };
 
-        if (it.despesa_id || alvo) {
-          const id = it.despesa_id ?? alvo!.id;
-          const { data, error } = await sb.from("despesas").update(payload)
-            .eq("id", id).eq("unidade_id", unidadeId).select("id");
+        if (alvo) {
+          const upd: Record<string, unknown> = {
+            ...comum,
+            data_competencia: alvo.data_competencia ?? ini,
+            atualizado_em: new Date().toISOString(),
+          };
+          if (it.categoria_nome !== undefined) upd.categoria_id = await categoria(it.categoria_nome);
+          const { data, error } = await sb.from("despesas").update(upd)
+            .eq("id", alvo.id).eq("unidade_id", unidadeId).select("id");
           if (error) { falhas.push({ indice: i, erro: error.message }); continue; }
           if (!data || data.length === 0) { falhas.push({ indice: i, erro: "Despesa não encontrada ou sem permissão" }); continue; }
-          ids[i] = id;
+          ids[i] = alvo.id;
           atualizadas++;
+          recalibrar.add(alvo.descricao);
+          recalibrar.add(descricao);
         } else {
-          const { data, error } = await sb.from("despesas").insert(payload).select("id").single();
+          const ins = {
+            ...comum,
+            tenant_id,
+            unidade_id: unidadeId,
+            categoria_id: await categoria(it.categoria_nome, it.origem === "custo" ? descricao : undefined),
+            data_competencia: ini,
+            periodicidade: "mensal" as const,
+          };
+          const { data, error } = await sb.from("despesas").insert(ins).select("id").single();
           if (error || !data) { falhas.push({ indice: i, erro: error?.message ?? "Falha ao inserir" }); continue; }
-          const id = (data as { id: string }).id;
-          ids[i] = id;
-          // Um segundo item com a mesma descrição no lote casa com esta
-          existentes.push({ id, descricao, status: payload.status, pago_em, data_competencia: ini, vencimento: it.vencimento });
-          porId.set(id, existentes[existentes.length - 1]);
+          ids[i] = (data as { id: string }).id;
           inseridas++;
+          recalibrar.add(descricao);
         }
       } catch (e) {
         falhas.push({ indice: i, erro: msg(e) });
       }
+    }
+
+    // Mesma regra da edição pela lista: custo variável lançado em R$ reajusta o %
+    const vistas = new Set<string>();
+    for (const d of recalibrar) {
+      const k = normDesc(d);
+      if (vistas.has(k)) continue;
+      vistas.add(k);
+      await recalibrarCustoVariavelPorDescricao(unidadeId, d);
     }
 
     revalidar();
@@ -193,7 +232,10 @@ export type AtualizarDespesaPatch = {
   pago_em?: string | null;
 };
 
-/** Edita uma despesa lançada (linha da seção "Despesas lançadas no mês"). */
+/**
+ * Edita uma despesa lançada (linha da seção "Despesas lançadas no mês").
+ * Envie só os campos que o usuário alterou — categoria ausente não muda.
+ */
 export async function atualizarDespesa(unidadeId: string, id: string, patch: AtualizarDespesaPatch): Promise<Res> {
   try {
     const upd: Record<string, unknown> = {};
@@ -220,8 +262,9 @@ export async function atualizarDespesa(unidadeId: string, id: string, patch: Atu
     if (!atual) return { ok: false, erro: "Despesa não encontrada ou sem permissão" };
     const descricaoAntiga = (atual as { descricao: string }).descricao;
 
+    // Só mexe na categoria quando o campo vier no patch; vazio = sem categoria
     if (patch.categoria_nome !== undefined) {
-      upd.categoria_id = await resolvedorCategoria(sb, tenant_id)(patch.categoria_nome, (upd.descricao as string) ?? descricaoAntiga);
+      upd.categoria_id = await resolvedorCategoria(sb, tenant_id)(patch.categoria_nome);
     }
     if (Object.keys(upd).length === 0) return { ok: true };
     upd.atualizado_em = new Date().toISOString();

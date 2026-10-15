@@ -135,21 +135,38 @@ export function despesasUsadasNoDRE(
   return casarDespesasComCustos(custos, despesas).usadas;
 }
 
+/**
+ * Casamento custo → despesas (mesmo critério do DRE): descrição do custo →
+ * índices das despesas casadas e como casaram (descrição ou categoria).
+ */
+export function casamentoDespesasPorCusto(
+  custos: Array<{ descricao: string; ativo: boolean; tipo?: string }>,
+  despesas: DespesaParaDRE[],
+): Map<string, { indices: number[]; via: "descricao" | "categoria" }> {
+  return casarDespesasComCustos(custos, despesas).indices;
+}
+
 function casarDespesasComCustos(
   custos: Array<{ descricao: string; ativo: boolean; tipo?: string }>,
   despesas: DespesaParaDRE[],
-): { porCusto: Map<string, number>; usadas: Set<number> } {
+): {
+  porCusto: Map<string, number>;
+  usadas: Set<number>;
+  indices: Map<string, { indices: number[]; via: "descricao" | "categoria" }>;
+} {
   const out = new Map<string, number>();
   const ativos = custos.filter((c) => c.ativo && c.tipo !== "simples");
   const usadas = new Set<number>();
+  const indices = new Map<string, { indices: number[]; via: "descricao" | "categoria" }>();
 
   for (const c of ativos) {
     const n = normDesc(c.descricao);
     let soma = 0, achou = false;
+    const idx: number[] = [];
     despesas.forEach((d, i) => {
-      if (normDesc(d.descricao) === n) { soma += d.valor; achou = true; usadas.add(i); }
+      if (normDesc(d.descricao) === n) { soma += d.valor; achou = true; usadas.add(i); idx.push(i); }
     });
-    if (achou) out.set(c.descricao, soma);
+    if (achou) { out.set(c.descricao, soma); indices.set(c.descricao, { indices: idx, via: "descricao" }); }
   }
 
   const catsConsumidas = new Set<string>();
@@ -158,13 +175,14 @@ function casarDespesasComCustos(
     const cat = categoriaDoCusto(c.descricao);
     if (!cat || catsConsumidas.has(cat)) continue;
     let soma = 0, achou = false;
+    const idx: number[] = [];
     despesas.forEach((d, i) => {
       if (usadas.has(i) || !d.categoria) return;
-      if (normDesc(d.categoria) === cat) { soma += d.valor; achou = true; usadas.add(i); }
+      if (normDesc(d.categoria) === cat) { soma += d.valor; achou = true; usadas.add(i); idx.push(i); }
     });
-    if (achou) { out.set(c.descricao, soma); catsConsumidas.add(cat); }
+    if (achou) { out.set(c.descricao, soma); catsConsumidas.add(cat); indices.set(c.descricao, { indices: idx, via: "categoria" }); }
   }
-  return { porCusto: out, usadas };
+  return { porCusto: out, usadas, indices };
 }
 
 // ─── DRE Mensal ────────────────────────────────────────────────────────
