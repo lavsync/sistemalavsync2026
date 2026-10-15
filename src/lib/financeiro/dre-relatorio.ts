@@ -5,10 +5,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { carregarDadosDRE } from "./dre-dados";
 import {
   calcularDREPeriodo, periodoAnterior, serieMensal, mesesAte,
-  type Periodo, type TipoPeriodo, type DREPeriodoResultado,
+  type Periodo, type TipoPeriodo, type DREPeriodoResultado, type DadosDREUnidade,
 } from "./dre-periodo";
 import { analisarDRE } from "./dre-analise";
-import { gerarDREPdf } from "./pdf/dre-pdf";
+import { gerarDREPdf, type ProjetadoPdf } from "./pdf/dre-pdf";
+import { getProjecaoAtiva } from "./projecao/queries";
+import { montarComparativo } from "./projecao/comparativo";
+import { nowBR } from "@/lib/timezone-br";
 
 export const BUCKET_DRE = "dre-relatorios";
 export const ESCOPO_CONSOLIDADO = "consolidado";
@@ -63,6 +66,38 @@ export async function montarDRE(sb: SupabaseClient, escopo: string, periodo: Per
   };
 }
 
+/**
+ * Projetado da franqueadora × real nos meses FECHADOS do período (mesmo
+ * comparativo da aba Projetado × Real). Só entra quando TODAS as unidades do
+ * escopo têm projeção ativa (mesma regra do Painel). Qualquer falha (ex.:
+ * migration 0052 ainda não aplicada) = PDF sem o bloco, nunca PDF quebrado.
+ */
+async function projetadoDoPeriodo(sb: SupabaseClient, dados: DadosDREUnidade[], meses: string[]): Promise<ProjetadoPdf | null> {
+  try {
+    if (dados.length === 0) return null;
+    const projecoes = await Promise.all(dados.map((d) => getProjecaoAtiva(sb, d.unidade_id)));
+    if (projecoes.some((p) => p == null)) return null;
+    const h = nowBR();
+    const c = montarComparativo(dados.length === 1 ? dados[0].unidade_id : "consolidado",
+      projecoes.map((projecao, i) => ({ projecao: projecao!, dados: dados[i] })), { ano: h.ano, mes: h.mes });
+    if (!c) return null;
+    const noPeriodo = new Set(meses);
+    const ms = c.meses.filter((m) => m.real && noPeriodo.has(m.chave_mes));
+    if (ms.length === 0) return null;
+    const soma = (f: (m: (typeof ms)[number]) => number) => ms.reduce((s, m) => s + f(m), 0);
+    return {
+      nome: projecoes.length === 1 ? projecoes[0]!.nome : "Projeções da franqueadora",
+      meses: ms.length,
+      fat_proj: soma((m) => m.projetado.faturamento), fat_real: soma((m) => m.real!.faturamento),
+      res_proj: soma((m) => m.projetado.resultado), res_real: soma((m) => m.real!.resultado),
+      estimado: ms.some((m) => m.real!.estimado),
+    };
+  } catch (e) {
+    console.error("[dre-pdf] projetado:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 /** PDF completo + nome de arquivo sugerido. */
 export async function montarDREPdf(sb: SupabaseClient, escopo: string, periodo: Periodo, geradoPor: string): Promise<{ pdf: Buffer; arquivo: string; titulo: string } | null> {
   const esc = await resolverEscopo(sb, escopo);
@@ -70,13 +105,14 @@ export async function montarDREPdf(sb: SupabaseClient, escopo: string, periodo: 
   const dados = await carregarDadosDRE(sb, esc.ids);
   const atual = calcularDREPeriodo(dados, periodo);
   const anterior = calcularDREPeriodo(dados, periodoAnterior(periodo));
+  const projetado = await projetadoDoPeriodo(sb, dados, atual.meses);
   const agora = new Date();
   const geradoEm = agora.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const pdf = await gerarDREPdf({
     atual, anterior,
     tendencia: serieMensal(dados, mesesAte(atual.meses[atual.meses.length - 1], 12)),
     destaques: analisarDRE(atual, anterior.meses_com_dados.length > 0 ? anterior : null),
-    escopo: esc.rotulo, geradoPor, geradoEm,
+    escopo: esc.rotulo, geradoPor, geradoEm, projetado,
   });
   const carimbo = new Date(agora.getTime() - 3 * 3600_000).toISOString().slice(0, 16).replace(/[-:T]/g, "");
   const arquivo = `DRE_${esc.slug}_${periodo.tipo}_${periodo.ano}-${String(periodo.numero).padStart(2, "0")}__${carimbo}__${slugify(geradoPor) || "usuario"}.pdf`;

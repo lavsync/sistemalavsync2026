@@ -2,25 +2,20 @@
 
 import * as React from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import {
-  Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
-  ReferenceLine,
-} from "recharts";
 import {
   LayoutDashboard, Briefcase, FileText, TrendingUp, Settings,
   Building2, ChevronLeft, ChevronRight, Plus, Trash2, Save, Wand2,
-  Wallet, Award, Percent, AlertTriangle, CheckCircle2,
-  Download, X, Check, Loader2, ArrowRight, Coins, Calendar, Filter,
+  Wallet, Percent, AlertTriangle, CheckCircle2,
+  Download, X, Check, Loader2, ArrowRight, Coins,
   WashingMachine, Wind, Zap, Droplets, Beaker, FlaskConical, DollarSign, Clock, Plug,
+  GitCompareArrows,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Counter } from "./counter";
 import { Button } from "@/components/ui/button";
 import { useAbaUrl } from "@/components/shell/use-aba-url";
 import type { CustoFixo, CustoVariavel, ProjecaoMes } from "@/lib/financeiro/engine";
 import {
-  calcularDRE, projetar60Meses, calcularPayback, calcularBreakEven,
+  calcularDRE, projetar60Meses,
   mapearDespesasReais, rbt12Legal, normDesc,
 } from "@/lib/financeiro/engine";
 import { CustoVariavelReal } from "./custo-variavel-real";
@@ -40,6 +35,9 @@ import {
   salvarCustoVariavel, deletarCustoVariavel,
 } from "@/lib/financeiro/actions";
 import { LancarDespesasDialog } from "./lancar-despesas-dialog";
+import { PainelInteligente } from "./painel/painel-inteligente";
+import type { PainelDados } from "@/lib/financeiro/painel/tipos";
+import { ProjetadoVsReal } from "./projecao/projetado-vs-real";
 
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -75,12 +73,16 @@ export type FinanceiroData = {
   despesas_por_mes: Record<string, DespesaItem[]>;
   engenharia: EngenhariaCustos | null;
   margem: MargemUnidade | null;
+  /** Mês ("AAAA-MM") em que `margem` foi calculada (?despesas_mes= ou o mês do painel). */
+  margem_mes?: string;
+  /** Painel Geral do mês (?mes=) montado no servidor — null se a carga falhou. */
+  painel?: PainelDados | null;
 };
 
 export function FinanceiroView(props: FinanceiroData) {
   const [unidadeAtiva, setUnidadeAtiva] = React.useState(props.unidade_id);
   // Aba na URL (?aba=) — o CLOCK abre a tela já na aba certa
-  const [tab, setTab] = useAbaUrl(["painel", "invest", "dre", "relatorios", "config"] as const, "painel");
+  const [tab, setTab] = useAbaUrl(["painel", "projecao", "invest", "dre", "relatorios", "config"] as const, "painel");
 
   // Re-renderiza quando trocamos de unidade (via server props vindas da page)
   const data = props;
@@ -119,11 +121,6 @@ export function FinanceiroView(props: FinanceiroData) {
     lancamentos: lancamentosMap,
     overridesPorMes,
   }), [data.config, data.custos_fixos, data.custos_variaveis, investimentoTotalProjetado, lancamentosMap, overridesPorMes]);
-
-  const payback = React.useMemo(
-    () => calcularPayback(projecao, investimentoTotalProjetado),
-    [projecao, investimentoTotalProjetado]
-  );
 
   // Mês atual relativo ao início
   const hoje = new Date();
@@ -170,6 +167,7 @@ export function FinanceiroView(props: FinanceiroData) {
       <Tabs.Root value={tab} onValueChange={setTab}>
         <Tabs.List className="flex flex-wrap gap-1 rounded-xl border border-border bg-card p-1 fin-fadeup-2">
           <TabBtn value="painel"    icon={LayoutDashboard} label="Painel Geral" />
+          <TabBtn value="projecao"  icon={GitCompareArrows} label="Projetado × Real" />
           <TabBtn value="invest"    icon={Briefcase}       label="Investimento" />
           <TabBtn value="dre"       icon={FileText}        label="DRE Mensal" />
           <TabBtn value="relatorios" icon={Download}       label="Relatórios DRE" />
@@ -178,15 +176,12 @@ export function FinanceiroView(props: FinanceiroData) {
 
         {/* PAINEL GERAL */}
         <Tabs.Content value="painel" className="outline-none mt-5 space-y-5">
-          <PainelGeral
-            projecao={projecao}
-            payback={payback}
-            mesAtualIdx={mesAtualIdx}
-            data={data}
-            investimentoTotal={investimentoTotalProjetado}
-            margem={data.margem}
-            overridesPorMes={overridesPorMes}
-          />
+          <PainelGeral data={data} />
+        </Tabs.Content>
+
+        {/* PROJETADO × REAL (projeção da franqueadora vs DRE real) */}
+        <Tabs.Content value="projecao" className="outline-none mt-5 space-y-5">
+          <ProjetadoVsReal unidades={data.unidades} unidadeId={unidadeAtiva} />
         </Tabs.Content>
 
         {/* INVESTIMENTO */}
@@ -271,319 +266,27 @@ export function UnidadeSwitcher({ unidades, ativa, onChange }: { unidades: Unida
 }
 
 // ────────────────────────────────────────────────────────────
-// PAINEL GERAL
+// PAINEL GERAL — painel inteligente do mês (src/components/financeiro/painel)
 // ────────────────────────────────────────────────────────────
-function PainelGeral({ projecao, payback, mesAtualIdx, data, investimentoTotal, margem, overridesPorMes }: {
-  projecao: ProjecaoMes[]; payback: ReturnType<typeof calcularPayback>;
-  mesAtualIdx: number; data: FinanceiroData; investimentoTotal: number;
-  margem: MargemUnidade | null; overridesPorMes: Map<string, Map<string, number>>;
-}) {
-  const mesAtual = projecao[mesAtualIdx - 1];
-  const fatRealMes = mesAtual?.faturamento_real ?? 0;
-  const resultadoMes = mesAtual?.resultado_real ?? 0;
-
-  // Break-even pra referência no gráfico (usa custos da unidade)
-  const rbt12 = mesAtual?.rbt12 ?? 0;
-  const breakEven = calcularBreakEven({
-    custos_fixos: data.custos_fixos,
-    custos_variaveis: data.custos_variaveis,
-    mes_index: mesAtualIdx,
-    rbt12,
-    investimento_total: investimentoTotal,
-  });
-
-  // Filtro de meses (multi-select). Vazio = janela auto (atual ± 4).
-  const [mesesSelecionados, setMesesSelecionados] = React.useState<Set<number>>(new Set());
-
-  const projecaoFiltrada = React.useMemo(() => {
-    if (mesesSelecionados.size > 0) {
-      return projecao.filter((p) => mesesSelecionados.has(p.mes_index))
-        .sort((a, b) => a.mes_index - b.mes_index);
-    }
-    // Mostra só meses com vendas reais; senão cai pra janela atual ± 4
-    const comReal = projecao.filter((p) => p.faturamento_real != null);
-    if (comReal.length > 0) return comReal;
-    const ini = Math.max(0, mesAtualIdx - 5);
-    const fim = Math.min(60, ini + 9);
-    return projecao.slice(ini, fim);
-  }, [projecao, mesesSelecionados, mesAtualIdx]);
-
-  const chartData = projecaoFiltrada.map((p) => ({
-    rotulo: p.rotulo,
-    real: p.faturamento_real ?? 0,
-    mes_index: p.mes_index,
-  }));
-
-  const totalReal = chartData.reduce((s, d) => s + d.real, 0);
-  const mediaReal = chartData.length > 0 ? totalReal / chartData.length : 0;
-  const maxReal = chartData.length > 0 ? Math.max(...chartData.map((d) => d.real)) : 0;
-
-  // DRE do mês atual com despesas reais lançadas (mesma lógica da aba DRE Mensal).
-  // Source da verdade pro card "Despesas DRE".
-  const overridesPainel = mesAtual ? overridesPorMes.get(chaveMes(mesAtual.ano, mesAtual.mes)) : undefined;
-
-  const dreMesPainel = React.useMemo(() => {
-    if (!mesAtual || fatRealMes <= 0) return null;
-    return calcularDRE({
-      faturamento: fatRealMes,
-      rbt12,
-      mes_index: mesAtualIdx,
-      custos_fixos: data.custos_fixos,
-      custos_variaveis: data.custos_variaveis,
-      investimento_total: investimentoTotal,
-      despesas_reais_overrides: overridesPainel,
-    });
-  }, [mesAtual, fatRealMes, rbt12, mesAtualIdx, data.custos_fixos, data.custos_variaveis, investimentoTotal, overridesPainel]);
-
-  const despesasDRE = dreMesPainel
-    ? dreMesPainel.simples_nacional + dreMesPainel.custo_servico_total + dreMesPainel.despesas_total
-    : 0;
-  const margemMes = fatRealMes > 0 ? (resultadoMes / fatRealMes) * 100 : 0;
-
+function PainelGeral({ data }: { data: FinanceiroData }) {
+  const p = data.painel;
+  if (!p) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-8 text-center">
+        <p className="text-sm text-muted-foreground">
+          Não foi possível montar o painel deste mês. Recarregue a página; se continuar, confira a inauguração e os custos em Configurações.
+        </p>
+      </div>
+    );
+  }
+  // Rótulo do cartão = mês em que a margem foi calculada (pode vir de ?despesas_mes=)
+  const [ano, mes] = (data.margem_mes ?? p.mes).split("-").map(Number);
   return (
     <>
-      {/* KPIs reais */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-        <KpiCard fadeup={1} icon={TrendingUp} label="Faturamento mês"
-          valor={fatRealMes}
-          hint={fatRealMes > 0 ? `${MESES_PT[mesAtual?.mes ? mesAtual.mes - 1 : 0]}/${mesAtual?.ano ?? "—"}` : "Sem vendas no mês"}
-          tone={fatRealMes > 0 ? "success" : "purple"} />
-        <KpiCard fadeup={2} icon={Wallet} label="Resultado líquido mês"
-          valor={resultadoMes}
-          hint={fatRealMes > 0 ? `Margem ${margemMes.toFixed(1)}%` : "Aguardando vendas"}
-          tone={fatRealMes <= 0 ? "purple" : resultadoMes >= 0 ? "success" : "danger"} />
-        <KpiCard fadeup={3} icon={Award} label="Despesas DRE (mês)"
-          valor={despesasDRE}
-          hint={despesasDRE > 0 ? "Simples + custos fixos + variáveis + CSP" : "Sem dados no mês"}
-          tone={despesasDRE === 0 ? "purple" : "warning"} />
-        <KpiCard fadeup={4} icon={Percent} label="% recuperação investimento"
-          valor={payback.pct_recuperado}
-          suffix="%"
-          decimals={1}
-          hint={`Acumulado ${fmtBRL(payback.lucro_acumulado)}`}
-          tone="cyan" />
-      </div>
-
-      {/* Margem de Contribuição */}
-      {margem && <MargemContribuicaoCard margem={margem} mes={mesAtual?.mes ?? new Date().getMonth() + 1} ano={mesAtual?.ano ?? new Date().getFullYear()} />}
-
-      {/* Gráfico: Faturamento Real por mês */}
-      <div className="rounded-2xl border border-border bg-card p-5 fin-card-lift">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-          <div>
-            <div className="font-display font-bold text-[15px]">Faturamento Real por mês</div>
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {mesesSelecionados.size > 0
-                ? `${mesesSelecionados.size} ${mesesSelecionados.size === 1 ? "mês" : "meses"} selecionado${mesesSelecionados.size === 1 ? "" : "s"}`
-                : "Todos os meses com vendas"}
-              {totalReal > 0 && (
-                <>
-                  {" · Total "}
-                  <span className="font-mono font-bold text-success">{fmtBRL(totalReal)}</span>
-                  {" · Médio "}
-                  <span className="font-mono font-bold">{fmtBRL(mediaReal)}/mês</span>
-                  {" · Pico "}
-                  <span className="font-mono font-bold text-success">{fmtBRL(maxReal)}</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <FiltroMeses projecao={projecao} selecionados={mesesSelecionados} onChange={setMesesSelecionados} />
-          </div>
-        </div>
-
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 5, right: 14, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="rotulo" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} />
-              <YAxis stroke="var(--muted-foreground)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={fmtBRLk} />
-              <Tooltip
-                contentStyle={{ background: "var(--popover)", border: "1px solid var(--border-strong)", borderRadius: 8, fontSize: 11 }}
-                cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                formatter={(v) => [fmtBRL(Number(v ?? 0)), "Faturamento"]}
-                labelStyle={{ fontWeight: 700, marginBottom: 4 }}
-              />
-              <ReferenceLine y={breakEven} stroke="var(--warning)" strokeDasharray="5 5"
-                label={{ value: `Break-even ${fmtBRLk(breakEven)}`, position: "right", fill: "var(--warning)", fontSize: 10 }} />
-              <Bar dataKey="real" name="Faturamento" radius={[6, 6, 0, 0]}>
-                {chartData.map((d, i) => (
-                  <Cell key={i} fill={
-                    d.real === 0 ? "var(--muted)" :
-                    d.real >= breakEven ? "var(--success)" : "var(--brand-cyan)"
-                  } />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="mt-3 text-[10px] text-muted-foreground flex items-center gap-3 flex-wrap">
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-success" />Acima do break-even</span>
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-brand-cyan" />Abaixo do break-even</span>
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-muted" />Sem vendas</span>
-        </div>
-      </div>
+      <PainelInteligente dados={p} unidadeId={data.unidade_id} />
+      {/* Margem de contribuição detalhada por serviço (unidade, mês do painel) */}
+      {p.escopo.tipo === "unidade" && data.margem && <MargemContribuicaoCard margem={data.margem} mes={mes} ano={ano} />}
     </>
-  );
-}
-
-// ────────────────────────────────────────────────────────────
-// Filtro de meses (multi-select via dropdown com checkboxes)
-// ────────────────────────────────────────────────────────────
-function FiltroMeses({
-  projecao, selecionados, onChange,
-}: {
-  projecao: ProjecaoMes[];
-  selecionados: Set<number>;
-  onChange: (s: Set<number>) => void;
-}) {
-  function toggle(mesIdx: number) {
-    const novo = new Set(selecionados);
-    if (novo.has(mesIdx)) novo.delete(mesIdx);
-    else novo.add(mesIdx);
-    onChange(novo);
-  }
-  function selecionarUltimos(n: number) {
-    const ultimoComReal = [...projecao].reverse().find((p) => p.faturamento_real != null)?.mes_index
-      ?? projecao.find((p) => p.mes === new Date().getMonth() + 1 && p.ano === new Date().getFullYear())?.mes_index
-      ?? 1;
-    const ini = Math.max(1, ultimoComReal - n + 1);
-    const novo = new Set<number>();
-    for (let i = ini; i <= ultimoComReal; i++) novo.add(i);
-    onChange(novo);
-  }
-  function selecionarAno(ano: number) {
-    const novo = new Set<number>();
-    for (const p of projecao) if (p.ano === ano) novo.add(p.mes_index);
-    onChange(novo);
-  }
-  function limpar() {
-    onChange(new Set());
-  }
-
-  const anos = Array.from(new Set(projecao.map((p) => p.ano))).sort();
-  const label = selecionados.size === 0
-    ? "Todos os meses (auto)"
-    : selecionados.size === 1
-    ? (() => {
-        const p = projecao.find((x) => selecionados.has(x.mes_index));
-        return p ? `${MESES_PT[p.mes - 1].slice(0, 3)}/${String(p.ano).slice(-2)}` : "1 mês";
-      })()
-    : `${selecionados.size} meses`;
-
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card text-[12px] font-semibold hover:border-brand-cyan transition-smooth">
-          <Filter className="w-3.5 h-3.5 text-brand-cyan" />
-          {label}
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={4}
-          className="z-50 max-h-[450px] w-[260px] overflow-y-auto rounded-xl border border-border bg-popover shadow-2xl p-1 animate-in fade-in zoom-in-95"
-        >
-          {/* Atalhos */}
-          <div className="px-2 py-1.5 border-b border-border/40">
-            <div className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Atalhos</div>
-            <div className="grid grid-cols-3 gap-1">
-              <button onClick={() => selecionarUltimos(3)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">3m</button>
-              <button onClick={() => selecionarUltimos(6)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">6m</button>
-              <button onClick={() => selecionarUltimos(12)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">12m</button>
-            </div>
-          </div>
-
-          {/* Por ano */}
-          <div className="px-2 py-1.5 border-b border-border/40">
-            <div className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Por ano</div>
-            <div className="flex flex-wrap gap-1">
-              {anos.map((a) => (
-                <button key={a} onClick={() => selecionarAno(a)} className="text-[10px] px-2 py-1 rounded border border-border hover:bg-secondary">
-                  {a}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Lista de meses */}
-          <div className="py-1">
-            {projecao.map((p) => {
-              const ativo = selecionados.has(p.mes_index);
-              const temReal = p.faturamento_real != null;
-              return (
-                <button
-                  key={p.mes_index}
-                  onClick={() => toggle(p.mes_index)}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[11px] rounded-md hover:bg-secondary transition-smooth",
-                    ativo && "bg-brand-cyan/10",
-                  )}
-                >
-                  <div className={cn(
-                    "w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0",
-                    ativo ? "border-brand-cyan bg-brand-cyan text-white" : "border-border",
-                  )}>
-                    {ativo && <Check className="w-2.5 h-2.5" />}
-                  </div>
-                  <Calendar className="w-3 h-3 text-muted-foreground" />
-                  <span className="font-mono flex-1">
-                    {MESES_PT[p.mes - 1].slice(0, 3)}/{p.ano}
-                  </span>
-                  {temReal && (
-                    <span className="text-[9px] font-bold text-success">●</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {selecionados.size > 0 && (
-            <div className="border-t border-border/40 p-1.5">
-              <button
-                onClick={limpar}
-                className="w-full text-[11px] px-2 py-1.5 rounded-md text-danger hover:bg-danger/10 font-semibold"
-              >
-                Limpar seleção
-              </button>
-            </div>
-          )}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
-}
-
-function KpiCard({ icon: Icon, label, valor, hint, tone, suffix = "", decimals = 2, fadeup = 1 }: {
-  icon: React.ElementType; label: string; valor: number; hint: string; tone: "success" | "danger" | "warning" | "cyan" | "purple";
-  suffix?: string; decimals?: number; fadeup?: 1 | 2 | 3 | 4;
-}) {
-  const map = {
-    success: { iconBg: "bg-success/15 border-success/30 text-success", textCol: "text-success" },
-    danger:  { iconBg: "bg-danger/15 border-danger/30 text-danger",    textCol: "text-danger" },
-    warning: { iconBg: "bg-warning/15 border-warning/30 text-warning", textCol: "text-warning" },
-    cyan:    { iconBg: "bg-brand-cyan/15 border-brand-cyan/30 text-brand-cyan", textCol: "text-brand-cyan" },
-    purple:  { iconBg: "bg-brand-purple/15 border-brand-purple/30 text-brand-purple", textCol: "text-brand-purple" },
-  }[tone];
-  const isPct = suffix === "%";
-  return (
-    <div className={cn("rounded-2xl border border-border bg-card p-4 fin-card-lift", `fin-fadeup-${fadeup}`)}>
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">{label}</div>
-        <div className={cn("w-9 h-9 rounded-lg border flex items-center justify-center", map.iconBg)}>
-          <Icon className="w-4 h-4" />
-        </div>
-      </div>
-      <div className={cn("font-display text-2xl md:text-3xl font-bold mt-2 tabular-nums", map.textCol)}>
-        <Counter value={valor} prefix={isPct ? "" : "R$ "} suffix={isPct ? "%" : ""}
-          decimals={isPct ? decimals : decimals} duration={1400} />
-      </div>
-      <div className="text-[11px] text-muted-foreground mt-1">{hint}</div>
-    </div>
   );
 }
 

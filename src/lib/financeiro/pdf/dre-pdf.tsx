@@ -61,6 +61,15 @@ const GRUPOS: Partial<Record<LinhaDRE["grupo"], string>> = {
   csp: "Custo do serviço prestado", royalties: "Despesas operacionais", fixo: "Custos fixos", variavel: "Custos variáveis",
 };
 
+/** Projetado da franqueadora × real nos meses fechados do período (opcional). */
+export type ProjetadoPdf = {
+  nome: string;
+  meses: number;             // meses fechados do período com projeção e real
+  fat_proj: number; fat_real: number;
+  res_proj: number; res_real: number;
+  estimado: boolean;         // parte do custo real ainda estimada
+};
+
 export type DREPdfInput = {
   atual: DREPeriodoResultado;
   anterior: DREPeriodoResultado | null;
@@ -69,7 +78,29 @@ export type DREPdfInput = {
   escopo: string;            // "Consolidado · Buritis, Castelo, Cabral" | "Unidade Cabral"
   geradoPor: string;
   geradoEm: string;          // já formatado (BR)
+  projetado?: ProjetadoPdf | null;
 };
+
+function BlocoProjetado({ p }: { p: ProjetadoPdf }) {
+  const pct = p.fat_proj > 0 ? (p.fat_real / p.fat_proj) * 100 : null;
+  const pctFmt = pct == null ? "-" : `${pct.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`;
+  const gapRes = p.res_real - p.res_proj;
+  return (
+    <View style={[s.caixa, { marginTop: 12 }]} wrap={false}>
+      <Text style={s.secTitulo}>Projetado pela franqueadora × real</Text>
+      <View style={s.kpis}>
+        <Kpi label="Faturamento real" valor={brl(p.fat_real)} variacaoTxt={`projetado ${brl(p.fat_proj)}`} />
+        <Kpi label="% do projetado" valor={pctFmt} cor={pct == null ? undefined : pct >= 95 ? C.verde : pct >= 70 ? C.ambar : C.vermelho} />
+        <Kpi label="Resultado real" valor={brl(p.res_real)} cor={p.res_real >= 0 ? C.verde : C.vermelho} variacaoTxt={`projetado ${brl(p.res_proj)}`} />
+        <Kpi label="Diferença no resultado" valor={brl(gapRes)} cor={gapRes >= 0 ? C.verde : C.vermelho} />
+      </View>
+      <Text style={s.nota}>
+        {t(`${p.nome}. Compara só os ${p.meses} ${p.meses === 1 ? "mês fechado" : "meses fechados"} do período (o mês corrente fica de fora).`)}
+        {p.estimado ? " Parte do custo real ainda é estimada pelo % de referência." : ""}
+      </Text>
+    </View>
+  );
+}
 
 function Kpi({ label, valor, variacaoTxt, cor }: { label: string; valor: string; variacaoTxt?: string; cor?: string }) {
   return (
@@ -233,6 +264,8 @@ export function DREDocumento(p: DREPdfInput) {
               <Grafico dados={p.tendencia} />
             </View>
           </View>
+
+          {p.projetado ? <BlocoProjetado p={p.projetado} /> : null}
         </View>
 
         <View style={s.rodape} fixed>

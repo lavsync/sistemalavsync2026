@@ -8,11 +8,14 @@ import {
 import { getEngenhariaCustos, getCiclosDoMes } from "@/lib/financeiro/margem-queries";
 import { calcularMargemContribuicao } from "@/lib/financeiro/margem-engine";
 import { createClient } from "@/lib/supabase/server";
-import { nowBR } from "@/lib/timezone-br";
+import { carregarPainel, lerMesPainel, ESCOPO_CONSOLIDADO } from "@/lib/financeiro/painel/carregar-painel";
 
 export const dynamic = "force-dynamic";
+// A importação da projeção (server action desta página) espera a leitura do
+// CLOCK, que leva de 30 a 120 s num estudo grande
+export const maxDuration = 300;
 
-type SearchParams = Promise<{ unidade?: string; despesas_mes?: string }>;
+type SearchParams = Promise<{ unidade?: string; despesas_mes?: string; mes?: string; escopo?: string }>;
 
 export default async function Page({ searchParams }: { searchParams: SearchParams }) {
   const sb = await createClient();
@@ -38,12 +41,14 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
     );
   }
 
-  // Mês de referência da margem de contribuição (default = mês corrente BR)
-  const hoje = nowBR();
-  const refMes = params.despesas_mes ?? `${hoje.ano}-${String(hoje.mes).padStart(2, "0")}`;
+  // Mês do Painel Geral (?mes=AAAA-MM; default = mês corrente BR) — também é
+  // o mês de referência da margem de contribuição, salvo ?despesas_mes=
+  const mesPainel = lerMesPainel(params.mes);
+  const refMes = params.despesas_mes ? lerMesPainel(params.despesas_mes) : mesPainel;
   const [refAno, refMesNum] = refMes.split("-").map(Number);
+  const escopoPainel = params.escopo === ESCOPO_CONSOLIDADO ? ESCOPO_CONSOLIDADO : unidadeId;
 
-  const [config, investimento, custos_fixos, custos_variaveis, lancamentosRaw, despesas_por_mes, vendasMensais, engenharia, ciclosMes] = await Promise.all([
+  const [config, investimento, custos_fixos, custos_variaveis, lancamentosRaw, despesas_por_mes, vendasMensais, engenharia, ciclosMes, painel] = await Promise.all([
     getConfigUnidade(unidadeId),
     getInvestimento(unidadeId),
     getCustosFixos(unidadeId),
@@ -53,6 +58,11 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
     getFaturamentoMensalVendas(unidadeId),
     getEngenhariaCustos(unidadeId),
     getCiclosDoMes(unidadeId, refAno, refMesNum),
+    // Painel Geral do mês: falha aqui não derruba as outras abas
+    carregarPainel(sb, { unidades, escopo: escopoPainel, mes: mesPainel }).catch((e) => {
+      console.error("[financeiro] painel:", e instanceof Error ? e.message : e);
+      return null;
+    }),
   ]);
 
   // Margem de contribuição do mês de referência
@@ -82,6 +92,8 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
         despesas_por_mes={despesas_por_mes}
         engenharia={engenharia}
         margem={margem}
+        margem_mes={refMes}
+        painel={painel}
       />
     </AppShell>
   );

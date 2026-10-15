@@ -31,7 +31,7 @@ export const ROTAS: DefRota[] = [
   { href: "/cadastros/importacoes", rotulo: "Importações", permissao: "cadastros.importacoes.view" },
 
   // Operacional
-  { href: "/financeiro", rotulo: "Financeiro", permissao: "financeiro.view", abas: ["painel", "invest", "dre", "relatorios", "config"], filtros: { unidade: "unidade" } },
+  { href: "/financeiro", rotulo: "Financeiro", permissao: "financeiro.view", abas: ["painel", "projecao", "invest", "dre", "relatorios", "config"], filtros: { unidade: "unidade" } },
   { href: "/clientes", rotulo: "Clientes", permissao: "clientes.view" },
   { href: "/publicidade", rotulo: "Marketing", permissao: "marketing.view", abas: ["campanhas", "clube", "xoclub", "cupons"] },
   { href: "/publicidade/fidelidade", rotulo: "Fidelidade · Relatório", permissao: "marketing.clube.view" },

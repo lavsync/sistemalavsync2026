@@ -3,7 +3,8 @@
 // DRE por período (mensal, trimestral, semestral, anual) pela MESMA fonte
 // da tela e do PDF (dre-relatorio.ts:montarDRE → dre-periodo.ts), projeção
 // de 60 meses com payback e break-even, margem de contribuição por ciclo,
-// despesas reais do mês e arquivo de relatórios DRE salvos.
+// despesas reais do mês, arquivo de relatórios DRE salvos e o projetado da
+// franqueadora × real (projecao/comparativo.ts sobre a sessão).
 //
 // Escopo "consolidado": para quem enxerga todas as unidades usa montarDRE
 // direto; para usuário restrito, consolida SÓ as unidades liberadas a ele
@@ -22,6 +23,9 @@ import { getEngenhariaCustos, getCiclosDoMes } from "@/lib/financeiro/margem-que
 import { calcularMargemContribuicao } from "@/lib/financeiro/margem-engine";
 import { salvarRelatorioDRE, listarRelatoriosDRE, excluirRelatorioDRE } from "@/lib/financeiro/dre-relatorios-actions";
 import { nowBR } from "@/lib/timezone-br";
+import { getProjecaoAtiva } from "@/lib/financeiro/projecao/queries";
+import { montarComparativo } from "@/lib/financeiro/projecao/comparativo";
+import type { Projecao } from "@/lib/financeiro/projecao/tipos";
 import type { CtxClock, DefAcao, DefConsulta, Params } from "./tipos";
 import {
   resolverUnidades, resolverUnidadeUnica, temAcessoTotal, texto, textoObrig, inteiro, umDe, mesRef, mesBR, nomeMesRef, r2, ErroClock,
@@ -248,6 +252,58 @@ const relatoriosDreSalvos: DefConsulta = {
   },
 };
 
+const projetadoVsReal: DefConsulta = {
+  id: "projetado_vs_real",
+  modulo: "financeiro",
+  descricao:
+    "Projetado pela franqueadora (DRE de 60 meses da venda da franquia) × real do DRE, por unidade ou consolidado: faturamento e resultado acumulados " +
+    "nos meses fechados, % do projetado atingido, payback projetado × no ritmo real, últimos meses mês a mês e leituras prontas (descolamento da rampa, " +
+    "custos fora do projetado, Simples, ROI). Só meses fechados entram no real.",
+  permissao: "financeiro.view",
+  params: { type: "object", properties: { escopo: P_ESCOPO } },
+  async executar(ctx, p) {
+    // Mesmo escopo do DRE: consolidado = SÓ as unidades liberadas ao usuário
+    const esc = await escopoDe(ctx, p);
+    const ativas = await Promise.all(esc.ids.map((id) => getProjecaoAtiva(ctx.sb, id)));
+    const projecoes = ativas.filter((x): x is Projecao => x != null);
+    const nome = (id: string) => ctx.unidades.find((u) => u.id === id)?.nome ?? id;
+    const semProjecao = esc.ids.filter((_, i) => ativas[i] == null).map(nome);
+    if (projecoes.length === 0) {
+      return {
+        escopo: esc.rotulo, tem_projecao: false,
+        mensagem: "Nenhuma projeção da franqueadora ativa nesse escopo. Importe o arquivo em Financeiro, aba Projetado × Real.",
+        href: "/financeiro?aba=projecao",
+      };
+    }
+    const dados = await carregarDadosDRE(ctx.sb, projecoes.map((x) => x.unidade_id));
+    const { ano, mes } = nowBR();
+    const c = montarComparativo(esc.consolidado ? "consolidado" : esc.escopo, projecoes.map((projecao, i) => ({ projecao, dados: dados[i] })), { ano, mes });
+    if (!c) throw new ErroClock("Não foi possível montar o comparativo.");
+    const realizados = c.meses.filter((m) => m.real);
+    const semInauguracao = dados.filter((d) => !d.ano_inauguracao || !d.mes_inauguracao).map((d) => d.unidade_nome);
+    return {
+      escopo: esc.rotulo,
+      tem_projecao: true,
+      unidades_comparadas: c.unidades,
+      unidades_sem_projecao: semProjecao,
+      unidades_sem_inauguracao: semInauguracao,
+      mes_index: esc.consolidado ? "posição na linha do tempo do consolidado (cite o mês do calendário)" : "mês da projeção (1 = mês inicial)",
+      acumulado: { ...c.acumulado, pct_atingido_unidade: "pontos percentuais" },
+      meses_fechados_comparados: realizados.length,
+      payback: c.payback,
+      ultimos_meses: realizados.slice(-6).map((m) => ({
+        mes: m.chave_mes, mes_index: m.mes_index,
+        faturamento_projetado: r2(m.projetado.faturamento), faturamento_real: r2(m.real!.faturamento),
+        resultado_projetado: r2(m.projetado.resultado), resultado_real: r2(m.real!.resultado),
+        custo_estimado: m.real!.estimado,
+      })),
+      simples_divergente: c.simples_divergente,
+      leituras: c.insights.map((i) => ({ tom: i.tom, texto: i.texto })),
+      href: esc.consolidado ? "/financeiro?aba=projecao" : `/financeiro?aba=projecao&unidade=${esc.ids[0]}`,
+    };
+  },
+};
+
 // ─── Ações ──────────────────────────────────────────────────────────────────
 
 const gerarPdfDre: DefAcao = {
@@ -294,5 +350,5 @@ const excluirRelatorioDre: DefAcao = {
   },
 };
 
-export const CONSULTAS_FINANCEIRO: DefConsulta[] = [drePeriodo, projecaoFinanceira, margemContribuicao, despesasDoMes, relatoriosDreSalvos];
+export const CONSULTAS_FINANCEIRO: DefConsulta[] = [drePeriodo, projecaoFinanceira, margemContribuicao, despesasDoMes, relatoriosDreSalvos, projetadoVsReal];
 export const ACOES_FINANCEIRO: DefAcao[] = [gerarPdfDre, excluirRelatorioDre];
