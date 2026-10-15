@@ -120,7 +120,7 @@ type FilaRow = {
  * unidade sem conexão 'conectado' ficam pendentes (dry-run por unidade).
  * Retry transitório segue o BACKOFF; 4xx vira 'morto'. Best-effort: nunca lança.
  */
-export async function processarFila(opts?: { limite?: number }): Promise<ResultadoProcessamento> {
+export async function processarFila(opts?: { limite?: number; tenantId?: string }): Promise<ResultadoProcessamento> {
   const res: ResultadoProcessamento = {
     considerados: 0, enviados: 0, reagendados: 0, mortos: 0, suprimidos: 0, dryRun: false,
   };
@@ -128,10 +128,14 @@ export async function processarFila(opts?: { limite?: number }): Promise<Resulta
   const sb = createAdminClient();
   const agora = new Date().toISOString();
 
-  const { data: rows, error } = await sb
+  // tenantId: chamadas feitas por um usuário (CLOCK) processam só a fila do
+  // tenant dele; o cron (sem tenantId) segue processando a fila global.
+  let consulta = sb
     .from("msg_fila")
     .select("id, unidade_id, canal, destinatario_telefone, corpo_renderizado, tentativas")
-    .eq("status", "pendente")
+    .eq("status", "pendente");
+  if (opts?.tenantId) consulta = consulta.eq("tenant_id", opts.tenantId);
+  const { data: rows, error } = await consulta
     .eq("canal", "whatsapp")
     .lte("proximo_retry_em", agora)
     .order("prioridade", { ascending: true })       // 0 (operacional) primeiro

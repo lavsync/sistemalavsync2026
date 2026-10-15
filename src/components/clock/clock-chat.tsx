@@ -1,212 +1,278 @@
 "use client";
 
-// LavSync · CLOCK AI · Chat com voz
+// LavSync · CLOCK v2 · Conversa (view)
 //
-// Entrada: texto ou microfone (Web Speech API, pt-BR).
-// Saída: voz premium ElevenLabs via /api/clock/tts (fallback: SpeechSynthesis
-// do navegador). Enquanto o CLOCK fala, um ouvinte de comando detecta
-// "pare" → corta a fala e já abre o microfone pro próximo comando.
+// Só desenha o estado do ClockProvider (useClock): a conversa, o microfone e
+// o alto-falante vivem no provider e no motor de voz (src/lib/clock-voz), por
+// isso rail desktop, sheet mobile e /clock mostram a MESMA conversa e trocar
+// de rota não corta o CLOCK no meio da frase.
+//
+// O que aparece aqui:
+//   • legenda em streaming da resposta (texto chega pelo SSE antes do áudio);
+//   • indicador ouvindo / pensando / falando, com a ferramenta em uso;
+//   • transcrição parcial do que o usuário está dizendo;
+//   • card de confirmação de ação (Confirmar / Cancelar) — ação só roda com
+//     decisão explícita;
+//   • botão grande de microfone (com medidor de nível) e de interromper;
+//   • entrada de texto.
+// Interromper: em full-duplex basta falar; em half-duplex, botão, toque ou Esc.
 import * as React from "react";
-import { Mic, MicOff, Send, Volume2, VolumeX, Loader2, Sparkles, Square } from "lucide-react";
+import Link from "next/link";
+import {
+  ArrowUpRight, Loader2, Mic, MicOff, RotateCcw, Send, ShieldAlert, Sparkles, Square,
+  Volume2, VolumeX, Wrench,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useClock, type EstadoClock, type MensagemClock, type RiscoAcao } from "@/components/clock/clock-provider";
 
-type Msg = { role: "user" | "assistant"; content: string };
-
-// FAQ — as perguntas do dia a dia, sempre à mão
-const FAQS = [
+const SUGESTOES = [
   "Como foram as vendas de hoje?",
   "E ontem, como foi?",
-  "Quem usou ontem e quanto somou de LavCoins?",
   "Situação do clube este mês",
   "Quem está quase no Bronze?",
   "Clientes parados há 30 dias",
 ];
 
-// ─── Voz (TTS fallback do navegador) ────────────────────────────────────────
-function escolherVozPtBr(): SpeechSynthesisVoice | null {
-  const vozes = window.speechSynthesis?.getVoices() ?? [];
-  const ptbr = vozes.filter((v) => v.lang.replace("_", "-").toLowerCase().startsWith("pt-br"));
-  if (ptbr.length === 0) return vozes.find((v) => v.lang.toLowerCase().startsWith("pt")) ?? null;
-  const ranking = ["luciana", "google", "felipe", "francisca", "microsoft"];
-  ptbr.sort((a, b) => {
-    const ra = ranking.findIndex((n) => a.name.toLowerCase().includes(n));
-    const rb = ranking.findIndex((n) => b.name.toLowerCase().includes(n));
-    return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
-  });
-  return ptbr[0];
-}
-
-// ─── Reconhecimento de fala (STT) ───────────────────────────────────────────
-type RecognitionLike = {
-  lang: string; continuous: boolean; interimResults: boolean;
-  onresult: ((ev: { results: ArrayLike<ArrayLike<{ transcript: string }>>; resultIndex: number }) => void) | null;
-  onend: (() => void) | null; onerror: (() => void) | null;
-  start: () => void; stop: () => void; abort?: () => void;
+const ROTULO_ESTADO: Record<EstadoClock, string> = {
+  ocioso: "Pronto",
+  ouvindo: "Ouvindo",
+  pensando: "Pensando",
+  falando: "Falando",
 };
 
-function criarReconhecimento(opts?: { continuo?: boolean; parcial?: boolean }): RecognitionLike | null {
-  const w = window as unknown as { webkitSpeechRecognition?: new () => RecognitionLike; SpeechRecognition?: new () => RecognitionLike };
-  const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
-  if (!Ctor) return null;
-  const r = new Ctor();
-  r.lang = "pt-BR";
-  r.continuous = opts?.continuo ?? false;
-  r.interimResults = opts?.parcial ?? false;
-  return r;
+const ROTULO_RISCO: Record<RiscoAcao, string> = {
+  baixo: "Risco baixo",
+  medio: "Risco médio",
+  alto: "Risco alto",
+};
+
+// ─── Indicador de estado ────────────────────────────────────────────────────
+
+function IndicadorEstado({ estado }: { estado: EstadoClock }) {
+  return (
+    <span className="relative inline-flex w-2.5 h-2.5 shrink-0" aria-hidden>
+      {estado !== "ocioso" && (
+        <span
+          className={cn(
+            "absolute inset-0 rounded-full animate-ping opacity-60",
+            estado === "ouvindo" && "bg-danger",
+            estado === "pensando" && "bg-warning",
+            estado === "falando" && "bg-brand-cyan",
+          )}
+        />
+      )}
+      <span
+        className={cn(
+          "relative inline-flex w-2.5 h-2.5 rounded-full",
+          estado === "ocioso" && "bg-muted-foreground/50",
+          estado === "ouvindo" && "bg-danger",
+          estado === "pensando" && "bg-warning",
+          estado === "falando" && "bg-brand-cyan",
+        )}
+      />
+    </span>
+  );
+}
+
+// ─── Mensagem ───────────────────────────────────────────────────────────────
+
+function Bolha({ m }: { m: MensagemClock }) {
+  const doUsuario = m.role === "user";
+  return (
+    <div className={cn("flex flex-col gap-1", doUsuario ? "items-end" : "items-start")}>
+      {!doUsuario && !!m.ferramentas?.length && (
+        <div className="flex flex-wrap gap-1 max-w-[85%]">
+          {m.ferramentas.map((f, i) => (
+            <span key={`${f}-${i}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/60 text-[10.5px] text-muted-foreground">
+              <Wrench className="w-3 h-3" /> {f}
+            </span>
+          ))}
+        </div>
+      )}
+      <div
+        className={cn(
+          "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap break-words",
+          doUsuario
+            ? "bg-gradient-to-r from-brand-cyan to-brand-blue text-white rounded-br-sm"
+            : m.erro
+              ? "bg-danger/10 text-danger border border-danger/20 rounded-bl-sm"
+              : m.aviso
+                ? "bg-secondary/40 text-muted-foreground border border-border rounded-bl-sm"
+                : "bg-secondary/60 rounded-bl-sm",
+        )}
+      >
+        {m.texto}
+        {m.parcial && (
+          <span className="inline-block w-1.5 h-3.5 ml-0.5 align-[-2px] bg-current opacity-60 animate-pulse" aria-hidden />
+        )}
+        {m.parcial && !m.texto && <span className="text-muted-foreground">…</span>}
+      </div>
+      {!doUsuario && !!m.navegacoes?.length && (
+        <div className="flex flex-wrap gap-1 max-w-[85%]">
+          {m.navegacoes.map((n, i) => (
+            <Link
+              key={`${n.href}-${i}`}
+              href={n.href}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-brand-cyan/30 text-brand-cyan text-[10.5px] font-semibold hover:bg-brand-cyan/10 transition-smooth"
+            >
+              {n.rotulo} <ArrowUpRight className="w-3 h-3" />
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Card de confirmação ────────────────────────────────────────────────────
+
+function CardConfirmacao() {
+  const { acaoPendente, confirmarAcao, cancelarAcao } = useClock();
+  if (!acaoPendente) return null;
+  const decidindo = acaoPendente.status === "decidindo";
+  return (
+    <div
+      role="alertdialog"
+      aria-label="Confirmação de ação do CLOCK"
+      className={cn(
+        "mx-4 mb-2 rounded-xl border p-3 bg-card shadow-sm",
+        acaoPendente.risco === "alto" ? "border-danger/40" : acaoPendente.risco === "medio" ? "border-warning/40" : "border-brand-cyan/30",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <ShieldAlert
+          className={cn(
+            "w-4 h-4 mt-0.5 shrink-0",
+            acaoPendente.risco === "alto" ? "text-danger" : acaoPendente.risco === "medio" ? "text-warning" : "text-brand-cyan",
+          )}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] font-semibold">Confirma esta ação?</span>
+            <span
+              className={cn(
+                "px-1.5 py-0.5 rounded text-[10px] font-semibold",
+                acaoPendente.risco === "alto" ? "bg-danger/10 text-danger" : acaoPendente.risco === "medio" ? "bg-warning/10 text-warning" : "bg-brand-cyan/10 text-brand-cyan",
+              )}
+            >
+              {ROTULO_RISCO[acaoPendente.risco]}
+            </span>
+          </div>
+          <p className="text-[12.5px] leading-relaxed mt-1 text-foreground/90">{acaoPendente.resumo}</p>
+        </div>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={() => void confirmarAcao()}
+          disabled={decidindo}
+          className="flex-1 h-9 rounded-lg bg-gradient-to-r from-brand-cyan to-brand-blue text-white text-[12.5px] font-semibold inline-flex items-center justify-center gap-1.5 disabled:opacity-50 hover:opacity-90 transition-smooth"
+        >
+          {decidindo && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Confirmar
+        </button>
+        <button
+          onClick={() => void cancelarAcao()}
+          disabled={decidindo}
+          className="flex-1 h-9 rounded-lg border border-border bg-secondary/50 text-[12.5px] font-semibold disabled:opacity-50 hover:bg-secondary transition-smooth"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Botão de microfone com medidor de nível ────────────────────────────────
+
+function BotaoMicrofone({ grande }: { grande: boolean }) {
+  const { estado, ouvir, pararDeOuvir, assinarNivelMic, vozDisponivel } = useClock();
+  const anelRef = React.useRef<HTMLSpanElement>(null);
+  const ouvindo = estado === "ouvindo";
+
+  // nível do mic direto no DOM (sem re-render a cada quadro)
+  React.useEffect(() => {
+    if (!ouvindo) {
+      if (anelRef.current) anelRef.current.style.transform = "scale(1)";
+      return;
+    }
+    return assinarNivelMic((nivel) => {
+      if (anelRef.current) anelRef.current.style.transform = `scale(${1 + nivel * 0.45})`;
+    });
+  }, [ouvindo, assinarNivelMic]);
+
+  const tamanho = grande ? "w-14 h-14" : "w-11 h-11";
+  return (
+    <button
+      onClick={() => (ouvindo ? pararDeOuvir() : ouvir())}
+      disabled={!vozDisponivel}
+      title={ouvindo ? "Parar de ouvir" : "Falar com o CLOCK"}
+      aria-pressed={ouvindo}
+      className={cn("relative rounded-full flex items-center justify-center shrink-0 disabled:opacity-40", tamanho)}
+    >
+      <span
+        ref={anelRef}
+        aria-hidden
+        className={cn(
+          "absolute inset-0 rounded-full transition-transform duration-75",
+          ouvindo ? "bg-danger/25" : "bg-transparent",
+        )}
+      />
+      <span
+        className={cn(
+          "relative rounded-full flex items-center justify-center text-white transition-smooth",
+          tamanho,
+          ouvindo ? "bg-danger" : "bg-gradient-to-br from-brand-cyan to-brand-blue hover:opacity-90",
+        )}
+      >
+        {ouvindo ? <MicOff className={grande ? "w-6 h-6" : "w-5 h-5"} /> : <Mic className={grande ? "w-6 h-6" : "w-5 h-5"} />}
+      </span>
+    </button>
+  );
 }
 
 // ─── Componente ─────────────────────────────────────────────────────────────
+
 export function ClockChat({ embutido = false }: { embutido?: boolean }) {
-  const [msgs, setMsgs] = React.useState<Msg[]>([]);
-  const [input, setInput] = React.useState("");
-  const [pensando, setPensando] = React.useState(false);
-  const [ouvindo, setOuvindo] = React.useState(false);
-  const [vozLigada, setVozLigada] = React.useState(true);
-  const [falando, setFalando] = React.useState(false);
-  const recRef = React.useRef<RecognitionLike | null>(null);
-  const hotwordRef = React.useRef<RecognitionLike | null>(null);
-  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const {
+    mensagens, estado, ferramentaAtual, transcricaoParcial, acaoPendente,
+    vozLigada, vozDisponivel, modoDuplex, enviar, interromper, alternarVoz, novaConversa,
+  } = useClock();
+  const [texto, setTexto] = React.useState("");
   const fimRef = React.useRef<HTMLDivElement>(null);
-  const msgsRef = React.useRef<Msg[]>([]);
-  msgsRef.current = msgs;
 
+  const pensando = estado === "pensando";
+  const falando = estado === "falando";
+  const ouvindo = estado === "ouvindo";
+  const ocupado = pensando || falando;
+
+  const ultima = mensagens[mensagens.length - 1];
   React.useEffect(() => {
-    fimRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [msgs, pensando]);
+    fimRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [mensagens.length, ultima?.texto, transcricaoParcial, acaoPendente?.acao_id]);
 
+  // Esc corta também o "pensando" (o motor já trata o Esc durante a fala)
   React.useEffect(() => {
-    window.speechSynthesis?.getVoices(); // Chrome carrega async
-    return () => {
-      window.speechSynthesis?.cancel();
-      audioRef.current?.pause();
-      hotwordRef.current?.abort?.();
-    };
-  }, []);
+    if (!pensando) return;
+    const tecla = (ev: KeyboardEvent) => { if (ev.key === "Escape") interromper(); };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [pensando, interromper]);
 
-  // ── Parar a fala (usado pelo botão e pelo comando de voz "pare") ──
-  const pararFala = React.useCallback(() => {
-    window.speechSynthesis?.cancel();
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-      audioRef.current = null;
-    }
-    hotwordRef.current?.abort?.();
-    hotwordRef.current = null;
-    setFalando(false);
-  }, []);
-
-  // ── Ouvinte do comando "pare" enquanto o CLOCK fala ──
-  const ouvirPare = React.useCallback((aoParar: () => void) => {
-    const rec = criarReconhecimento({ continuo: true, parcial: true });
-    if (!rec) return;
-    rec.onresult = (ev) => {
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const t = (ev.results[i]?.[0]?.transcript ?? "").toLowerCase();
-        if (/\b(pare|para|par[oô]u|silêncio|silencio|quieto|stop)\b/.test(t)) {
-          rec.abort?.();
-          aoParar();
-          return;
-        }
-      }
-    };
-    rec.onerror = () => { hotwordRef.current = null; };
-    rec.onend = () => { if (hotwordRef.current === rec) hotwordRef.current = null; };
-    hotwordRef.current = rec;
-    try { rec.start(); } catch { /* mic ocupado */ }
-  }, []);
-
-  const escutarComando = React.useCallback(() => {
-    const rec = criarReconhecimento();
-    if (!rec) return;
-    rec.onresult = (ev) => {
-      const transcript = ev.results[0]?.[0]?.transcript ?? "";
-      if (transcript) void enviarRef.current(transcript);
-    };
-    rec.onend = () => setOuvindo(false);
-    rec.onerror = () => setOuvindo(false);
-    recRef.current = rec;
-    setOuvindo(true);
-    rec.start();
-  }, []);
-
-  // ── Falar: ElevenLabs primeiro, navegador como fallback ──
-  const falar = React.useCallback(async (texto: string) => {
-    pararFala();
-    setFalando(true);
-    const encerrar = () => { setFalando(false); hotwordRef.current?.abort?.(); hotwordRef.current = null; };
-    const aoComandoPare = () => { pararFala(); escutarComando(); };
-
-    try {
-      const r = await fetch("/api/clock/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texto }),
-      });
-      if (r.ok) {
-        const blob = await r.blob();
-        const audio = new Audio(URL.createObjectURL(blob));
-        audioRef.current = audio;
-        audio.onended = encerrar;
-        audio.onerror = encerrar;
-        await audio.play();
-        ouvirPare(aoComandoPare);
-        return;
-      }
-    } catch { /* cai no fallback */ }
-
-    // Fallback: voz do navegador
-    const synth = window.speechSynthesis;
-    if (!synth) { encerrar(); return; }
-    const u = new SpeechSynthesisUtterance(texto);
-    const voz = escolherVozPtBr();
-    if (voz) u.voice = voz;
-    u.lang = "pt-BR"; u.rate = 1.08; u.pitch = 1.06;
-    u.onend = encerrar;
-    synth.speak(u);
-    ouvirPare(aoComandoPare);
-  }, [pararFala, ouvirPare, escutarComando]);
-
-  const enviar = React.useCallback(async (texto: string) => {
-    const t = texto.trim();
-    if (!t) return;
-    setInput("");
-    pararFala();
-    const novas: Msg[] = [...msgsRef.current, { role: "user", content: t }];
-    setMsgs(novas);
-    setPensando(true);
-    try {
-      const r = await fetch("/api/clock/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: novas.slice(-16) }),
-      });
-      const data = (await r.json()) as { resposta?: string; erro?: string };
-      const resposta = data.resposta ?? data.erro ?? "Não consegui responder.";
-      setMsgs((m) => [...m, { role: "assistant", content: resposta }]);
-      if (vozLigada) void falar(resposta);
-    } catch {
-      setMsgs((m) => [...m, { role: "assistant", content: "Erro de conexão — tenta de novo." }]);
-    } finally {
-      setPensando(false);
-    }
-  }, [vozLigada, falar, pararFala]);
-  const enviarRef = React.useRef(enviar);
-  enviarRef.current = enviar;
-
-  function alternarMicrofone() {
-    if (ouvindo) {
-      recRef.current?.stop();
-      setOuvindo(false);
-      return;
-    }
-    if (!criarReconhecimento()) {
-      setMsgs((m) => [...m, { role: "assistant", content: "Seu navegador não suporta reconhecimento de voz — use o Chrome." }]);
-      return;
-    }
-    pararFala();
-    escutarComando();
+  function mandar(t: string) {
+    const limpo = t.trim();
+    if (!limpo) return;
+    setTexto("");
+    enviar(limpo, "texto");
   }
+
+  const legendaEstado = ouvindo
+    ? "Ouvindo você"
+    : pensando
+      ? ferramentaAtual ?? "Pensando"
+      : falando
+        ? modoDuplex === "full-duplex"
+          ? "Falando. Pode falar por cima para interromper"
+          : "Falando. Toque em Interromper ou aperte Esc"
+        : "Dados ao vivo por voz ou texto";
 
   return (
     <div
@@ -214,108 +280,129 @@ export function ClockChat({ embutido = false }: { embutido?: boolean }) {
         "bg-card overflow-hidden flex flex-col",
         embutido ? "h-full min-h-0" : "rounded-2xl border border-brand-cyan/30",
       )}
-      style={embutido ? undefined : { height: 580 }}
+      style={embutido ? undefined : { height: 620 }}
     >
-      {/* Header */}
+      {/* Cabeçalho */}
       <div className="px-5 py-3.5 border-b border-border bg-gradient-to-r from-brand-cyan/10 to-brand-blue/10 flex items-center gap-3">
-        <div className={cn(
-          "w-9 h-9 rounded-full bg-gradient-to-br from-brand-cyan to-brand-blue flex items-center justify-center text-white shrink-0",
-          (pensando || falando) && "animate-pulse",
-        )}>
+        <div
+          className={cn(
+            "w-9 h-9 rounded-full bg-gradient-to-br from-brand-cyan to-brand-blue flex items-center justify-center text-white shrink-0",
+            ocupado && "animate-pulse",
+          )}
+        >
           <Sparkles className="w-4.5 h-4.5" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-display font-bold text-[14px]">CLOCK</div>
-          <div className="text-[11px] text-muted-foreground">
-            {ouvindo ? "Ouvindo você…" : falando ? "Falando — diga \"pare\" pra me interromper" : pensando ? "Consultando o sistema…" : "Dados ao vivo por voz ou texto"}
+          <div className="flex items-center gap-2">
+            <span className="font-display font-bold text-[14px]">CLOCK</span>
+            <span className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-muted-foreground" aria-live="polite">
+              <IndicadorEstado estado={estado} /> {ROTULO_ESTADO[estado]}
+            </span>
           </div>
+          <div className="text-[11px] text-muted-foreground truncate">{legendaEstado}</div>
         </div>
-        {falando && (
-          <button onClick={pararFala} title="Parar de falar"
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-secondary hover:bg-secondary/70">
-            <Square className="w-3 h-3" /> Parar
-          </button>
-        )}
         <button
-          onClick={() => { if (vozLigada) pararFala(); setVozLigada((v) => !v); }}
+          onClick={novaConversa}
+          title="Nova conversa"
+          className="p-2 rounded-md text-muted-foreground hover:bg-secondary/60 transition-smooth"
+        >
+          <RotateCcw className="w-4 h-4" />
+        </button>
+        <button
+          onClick={alternarVoz}
           title={vozLigada ? "Desligar respostas por voz" : "Ligar respostas por voz"}
-          className={cn("p-2 rounded-md transition-smooth",
-            vozLigada ? "text-brand-cyan bg-brand-cyan/10" : "text-muted-foreground bg-secondary/50")}>
+          aria-pressed={vozLigada}
+          className={cn(
+            "p-2 rounded-md transition-smooth",
+            vozLigada ? "text-brand-cyan bg-brand-cyan/10" : "text-muted-foreground bg-secondary/50",
+          )}
+        >
           {vozLigada ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
         </button>
       </div>
 
-      {/* Mensagens */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 custom-scroll-thin">
-        {msgs.length === 0 && (
-          <div className="h-full flex items-center justify-center text-center">
+      {/* Conversa */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 custom-scroll-thin" aria-live="polite">
+        {mensagens.length === 0 && !ouvindo && (
+          <div className="h-full flex flex-col items-center justify-center text-center gap-3">
             <div className="text-[13px] text-muted-foreground max-w-sm">
-              E aí! Sou o CLOCK. Pergunte pelos botões abaixo, digite ou aperte o microfone —
-              eu leio o sistema ao vivo e posso executar ações.
+              Sou o CLOCK. Pergunte por voz ou por texto: eu leio o sistema ao vivo, abro as telas
+              e preparo ações para você confirmar.
+            </div>
+            <div className="flex flex-wrap justify-center gap-1.5 max-w-sm">
+              {SUGESTOES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => mandar(s)}
+                  className="px-2.5 py-1 rounded-full border border-brand-cyan/30 text-brand-cyan text-[10.5px] font-semibold hover:bg-brand-cyan/10 transition-smooth"
+                >
+                  {s}
+                </button>
+              ))}
             </div>
           </div>
         )}
-        {msgs.map((m, i) => (
-          <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-            <div className={cn(
-              "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap",
-              m.role === "user"
-                ? "bg-gradient-to-r from-brand-cyan to-brand-blue text-white rounded-br-sm"
-                : "bg-secondary/60 rounded-bl-sm",
-            )}>
-              {m.content}
+
+        {mensagens.map((m) => <Bolha key={m.id} m={m} />)}
+
+        {ouvindo && (
+          <div className="flex justify-end">
+            <div className="max-w-[85%] rounded-2xl rounded-br-sm px-3.5 py-2.5 text-[13px] leading-relaxed border border-dashed border-brand-cyan/40 text-muted-foreground italic">
+              {transcricaoParcial || "Pode falar…"}
             </div>
           </div>
-        ))}
-        {pensando && (
+        )}
+
+        {pensando && ultima?.role !== "assistant" && (
           <div className="flex justify-start">
             <div className="rounded-2xl rounded-bl-sm bg-secondary/60 px-3.5 py-2.5 inline-flex items-center gap-2 text-[13px] text-muted-foreground">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> consultando os dados…
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> {ferramentaAtual ?? "Pensando"}
             </div>
           </div>
         )}
         <div ref={fimRef} />
       </div>
 
-      {/* FAQ — sempre à mão */}
-      <div className="px-4 pt-2 pb-1 flex gap-1.5 overflow-x-auto custom-scroll-thin">
-        {FAQS.map((s) => (
-          <button key={s} onClick={() => void enviar(s)} disabled={pensando}
-            className="shrink-0 px-2.5 py-1 rounded-full border border-brand-cyan/30 text-brand-cyan text-[10.5px] font-semibold hover:bg-brand-cyan/10 transition-smooth disabled:opacity-40">
-            {s}
-          </button>
-        ))}
-      </div>
+      <CardConfirmacao />
 
-      {/* Input */}
-      <div className="px-4 py-3 border-t border-border flex items-center gap-2">
-        <button
-          onClick={alternarMicrofone}
-          disabled={pensando}
-          title={ouvindo ? "Parar de ouvir" : "Falar com o CLOCK"}
-          className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-smooth",
-            ouvindo
-              ? "bg-danger text-white animate-pulse"
-              : "bg-gradient-to-br from-brand-cyan to-brand-blue text-white hover:opacity-90",
-          )}>
-          {ouvindo ? <MicOff className="w-4.5 h-4.5" /> : <Mic className="w-4.5 h-4.5" />}
-        </button>
+      {/* Controles de voz */}
+      <div className="px-4 pt-2 flex items-center justify-center gap-3">
+        <BotaoMicrofone grande={!embutido} />
+        {ocupado && (
+          <button
+            onClick={interromper}
+            title="Interromper (Esc)"
+            className="h-11 px-4 rounded-full border border-border bg-secondary/60 hover:bg-secondary text-[12.5px] font-semibold inline-flex items-center gap-2 transition-smooth"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" /> Interromper
+          </button>
+        )}
+      </div>
+      {!vozDisponivel && (
+        <p className="px-4 pt-1 text-center text-[10.5px] text-muted-foreground">Voz carregando ou indisponível neste navegador. O texto funciona normalmente.</p>
+      )}
+
+      {/* Texto */}
+      <form
+        className="px-4 py-3 mt-2 border-t border-border flex items-center gap-2"
+        onSubmit={(e) => { e.preventDefault(); mandar(texto); }}
+      >
         <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) void enviar(input); }}
-          placeholder={ouvindo ? "Pode falar…" : "Pergunte ao CLOCK…"}
-          disabled={pensando}
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          placeholder={ouvindo ? "Ouvindo… ou digite aqui" : "Pergunte ao CLOCK…"}
           className="form-input flex-1 h-10 text-[13px]"
+          aria-label="Mensagem para o CLOCK"
         />
         <button
-          onClick={() => void enviar(input)}
-          disabled={pensando || !input.trim()}
-          className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-cyan to-brand-blue text-white flex items-center justify-center shrink-0 disabled:opacity-40 hover:opacity-90 transition-smooth">
-          {pensando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          type="submit"
+          disabled={!texto.trim()}
+          title="Enviar"
+          className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-cyan to-brand-blue text-white flex items-center justify-center shrink-0 disabled:opacity-40 hover:opacity-90 transition-smooth"
+        >
+          <Send className="w-4 h-4" />
         </button>
-      </div>
+      </form>
     </div>
   );
 }

@@ -176,6 +176,7 @@ function SaldoDoDiaView({
 }
 import { cn, buscaCliente } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useAbaUrl } from "@/components/shell/use-aba-url";
 import {
   NIVEIS_XC, classificarXC, proximoNivelXC, type NivelXoClub, iconDoNivelXC, corDoNivelXC, labelDoNivelXC,
 } from "@/lib/xoclub/niveis";
@@ -217,7 +218,8 @@ export function XoClubView({
   enviosSaldo: string[];
   portais: Record<string, string>;
 }) {
-  const [tab, setTab] = React.useState<"dashboard" | "saldos" | "saldo_dia" | "store" | "resgates" | "config">("dashboard");
+  // Sub-aba na URL (?sub=) — mora dentro de Marketing (?aba=xoclub), por isso não usa "aba"
+  const [tab, setTab] = useAbaUrl(["dashboard", "saldos", "saldo_dia", "store", "resgates", "config"] as const, "dashboard", "sub");
   void unidades;
 
   return (
@@ -242,7 +244,7 @@ export function XoClubView({
         </div>
       </div>
 
-      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+      <Tabs.Root value={tab} onValueChange={setTab}>
         <Tabs.List className="flex flex-wrap gap-1 rounded-xl border border-border bg-card p-1">
           <TabBtn value="dashboard" icon={TrendingUp}     label="Dashboard" />
           <TabBtn value="saldos"    icon={Users}          label={`Saldos (${saldos.length})`} />

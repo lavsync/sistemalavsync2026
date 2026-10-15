@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { useAbaUrl } from "@/components/shell/use-aba-url";
 import { cn } from "@/lib/utils";
 import type { Campanha, SegmentoRFM } from "@/lib/marketing/queries";
 import {
@@ -92,7 +93,8 @@ export function MarketingView({
   portais: Record<string, string>;
   cupons: RelatorioCupons;
 }) {
-  const [tab, setTab] = React.useState<"campanhas" | "clube" | "xoclub" | "cupons">("campanhas");
+  // Aba na URL (?aba=) — o CLOCK abre a tela já na aba certa
+  const [tab, setTab] = useAbaUrl(["campanhas", "clube", "xoclub", "cupons"] as const, "campanhas");
   const [filtroUnidade, setFiltroUnidade] = React.useState<string>(unidadeAtivaId);
   const [editando, setEditando] = React.useState<Campanha | "nova" | null>(null);
   const [disparando, setDisparando] = React.useState<string | null>(null);
@@ -131,7 +133,7 @@ export function MarketingView({
         }
       />
 
-      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "campanhas" | "clube" | "xoclub" | "cupons")}>
+      <Tabs.Root value={tab} onValueChange={setTab}>
         <Tabs.List className="flex gap-1 rounded-xl border border-border bg-card p-1 w-fit">
           <Tabs.Trigger value="campanhas"
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md text-[12px] font-semibold transition-smooth data-[state=active]:bg-gradient-to-r data-[state=active]:from-brand-cyan data-[state=active]:to-brand-blue data-[state=active]:text-white data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-secondary">

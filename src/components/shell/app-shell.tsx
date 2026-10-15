@@ -4,6 +4,7 @@ import { listarUnidades, getUnidadeAtiva } from "@/lib/unidade-ativa";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { ClockRail } from "./clock-rail";
+import { ClockSessao } from "@/components/clock/clock-provider";
 import { SignOutButton } from "./signout-button";
 import type { SessionUser } from "./types";
 
@@ -30,6 +31,10 @@ export async function AppShell({
 
   return (
     <div className="min-h-screen flex items-start bg-mesh-dark">
+      {/* Ativa o CLOCK (provider na raiz) só para usuário autenticado. A conversa
+          vive no provider: trocar de página não derruba voz nem histórico. */}
+      <ClockSessao usuarioId={sessionUser.id} nome={sessionUser.name} />
+
       {/* Sidebar — desktop ocupa espaço, mobile vira drawer via mobile-nav */}
       <Sidebar user={sessionUser} signOutSlot={<SignOutButton />} />
 

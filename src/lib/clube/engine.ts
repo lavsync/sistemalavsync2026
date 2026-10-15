@@ -143,8 +143,9 @@ export async function classificarCompetencia(
     porNivel[nivel.key] += 1;
   }
 
-  // Reclassificação completa da competência
-  await sbAdmin.from("clube_classificacoes").delete().eq("mes_ref", mesRef);
+  // Reclassificação completa da competência — só do tenant que classifica
+  // (o service role não tem RLS; sem o filtro apagaria a rede inteira).
+  await sbAdmin.from("clube_classificacoes").delete().eq("mes_ref", mesRef).eq("tenant_id", tenantId);
   for (let i = 0; i < batch.length; i += 200) {
     const { error } = await sbAdmin.from("clube_classificacoes").insert(batch.slice(i, i + 200));
     if (error) throw new Error(`clube_classificacoes: ${error.message}`);

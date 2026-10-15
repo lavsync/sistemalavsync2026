@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Counter } from "./counter";
 import { Button } from "@/components/ui/button";
+import { useAbaUrl } from "@/components/shell/use-aba-url";
 import type { CustoFixo, CustoVariavel, ProjecaoMes } from "@/lib/financeiro/engine";
 import {
   calcularDRE, projetar60Meses, calcularPayback, calcularBreakEven,
@@ -78,7 +79,8 @@ export type FinanceiroData = {
 
 export function FinanceiroView(props: FinanceiroData) {
   const [unidadeAtiva, setUnidadeAtiva] = React.useState(props.unidade_id);
-  const [tab, setTab] = React.useState("painel");
+  // Aba na URL (?aba=) — o CLOCK abre a tela já na aba certa
+  const [tab, setTab] = useAbaUrl(["painel", "invest", "dre", "relatorios", "config"] as const, "painel");
 
   // Re-renderiza quando trocamos de unidade (via server props vindas da page)
   const data = props;

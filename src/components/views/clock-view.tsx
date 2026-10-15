@@ -1,324 +1,541 @@
 "use client";
 
-import { motion } from "framer-motion";
+// LavSync · /clock — Central do CLOCK
+//
+// Tudo aqui é dado real: a conversa é a do ClockProvider (a mesma do rail),
+// briefing e alertas vêm de /api/clock/novidades (clock_insights), o histórico
+// é clock_acoes do próprio usuário e a lista de vozes vem de /api/clock/vozes.
+// Nada de número fixo na tela.
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
-  BarChart3,
-  Bot,
-  Clock,
-  FileText,
+  Bell,
+  Check,
+  CheckCircle2,
+  CircleSlash,
+  Clock3,
   History,
-  MessageSquare,
-  Mic,
-  Send,
+  Loader2,
+  Newspaper,
+  Play,
+  RefreshCw,
+  ShieldAlert,
   Sparkles,
-  TrendingDown,
-  Wallet,
-  Wand2,
-  Wrench,
-  Zap,
+  Square,
+  Volume2,
+  XCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
-import { ChartCard } from "@/components/ui/chart-card";
-import { InsightCard } from "@/components/ui/insight-card";
 import { Button } from "@/components/ui/button";
-import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import { ClockChat } from "@/components/clock/clock-chat";
+import { useClock, type AlertaClock, type EstadoClock } from "@/components/clock/clock-provider";
+import { cn } from "@/lib/utils";
 
-const TIMELINE = [
-  { value: 142, time: "06h" }, { value: 168, time: "08h" }, { value: 121, time: "10h" },
-  { value: 245, time: "12h" }, { value: 189, time: "14h" }, { value: 207, time: "16h" },
-  { value: 312, time: "18h" }, { value: 198, time: "20h" }, { value: 156, time: "22h" },
-];
+export type AcaoHistorico = {
+  id: string;
+  acao: string;
+  resumo: string | null;
+  risco: "baixo" | "medio" | "alto" | string | null;
+  status: "pendente" | "executada" | "cancelada" | "expirada" | "erro" | string;
+  criado_em: string;
+  decidido_em: string | null;
+};
 
-const HISTORY = [
-  { time: "14:02", type: "insight", text: "Detectada queda de 18% projetada para fechamento de Maio.", severity: "danger" as const },
-  { time: "13:45", type: "action", text: "Sugerida campanha de win-back para 107 inativos via WhatsApp.", severity: "info" as const },
-  { time: "11:20", type: "alert", text: "PINPAD com 7 timeouts em 2h — investigação iniciada.", severity: "warn" as const },
-  { time: "09:01", type: "summary", text: "Resumo matinal enviado para o WhatsApp do gestor.", severity: "info" as const },
-  { time: "07:30", type: "prediction", text: "Pico previsto entre 18h–22h com confiança 87%.", severity: "info" as const },
-];
+type VozCandidata = { nome: string; voice_id: string; descricao: string };
+type RespostaVozes = { atual: string | null; candidatas: VozCandidata[] };
 
-const sevToTone = (s: typeof HISTORY[number]["severity"]) => ({
-  danger: "bg-danger/15 text-danger border-danger/30",
-  warn: "bg-warning/15 text-warning border-warning/30",
-  info: "bg-brand-cyan/15 text-brand-cyan border-brand-cyan/30",
-}[s]);
+const AMOSTRA_VOZ = "Oi, eu sou o CLOCK. Quando quiser saber como está a operação, é só me chamar.";
 
-export function ClockView() {
+const ROTULO_ESTADO: Record<EstadoClock, string> = {
+  ocioso: "Pronto para conversar",
+  ouvindo: "Ouvindo você",
+  pensando: "Consultando o sistema",
+  falando: "Falando",
+};
+
+const fmtDataHora = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Sao_Paulo",
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function dataHora(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : fmtDataHora.format(d);
+}
+
+const semAssinatura = () => () => {};
+const saudacaoServidor = (): string | null => null;
+
+function saudacao(): string {
+  const hora = Number(
+    new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", hourCycle: "h23" }).format(new Date()),
+  );
+  if (hora < 12) return "Bom dia";
+  if (hora < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
+// ─── View ──────────────────────────────────────────────────────────────────
+
+export function ClockView({
+  nome,
+  acoes,
+  historicoIndisponivel,
+  podeEscolherVoz,
+}: {
+  nome: string | null;
+  acoes: AcaoHistorico[];
+  historicoIndisponivel: boolean;
+  podeEscolherVoz: boolean;
+}) {
+  const { estado, interromper } = useClock();
+  // Saudação só no cliente: o horário do servidor (UTC) não é o do usuário.
+  // No servidor e na hidratação o snapshot é null; depois vale o do navegador.
+  const ola = React.useSyncExternalStore(semAssinatura, saudacao, saudacaoServidor);
+  const primeiroNome = nome?.trim().split(/\s+/)[0] ?? null;
+
   return (
     <div className="px-6 lg:px-8 py-6 space-y-6">
       <PageHeader
-        eyebrow="CLOCK AI · Copiloto Operacional"
-        title={
-          <>
-            CLOCK está <span className="text-gradient-brand">ativo</span> e analisando sua operação.
-          </> as unknown as string
-        }
-        subtitle="Inteligência contínua sobre faturamento, clientes, máquinas e marketing · 24/7 · resumos via WhatsApp · respostas em linguagem natural."
-        actions={
-          <>
-            <Button variant="outline" size="sm" className="text-xs h-8">
-              <FileText className="w-3 h-3 mr-1" /> Gerar relatório
-            </Button>
-            <Button size="sm" className="text-xs h-8 bg-brand-cyan hover:bg-brand-cyan/90 text-primary-foreground">
-              <MessageSquare className="w-3 h-3 mr-1" /> Conectar WhatsApp
-            </Button>
-          </>
-        }
+        eyebrow="IA & Insights · CLOCK"
+        title={ola && primeiroNome ? `${ola}, ${primeiroNome}.` : "Central do CLOCK"}
+        subtitle="Converse por voz ou texto com os dados ao vivo. O CLOCK abre telas, prepara o briefing do dia e só executa ações depois da sua confirmação."
+        actions={<EstadoBadge estado={estado} onParar={interromper} />}
       />
 
-      {/* CLOCK ORB HERO */}
-      <div className="card-premium relative rounded-2xl overflow-hidden">
-        <div className="absolute inset-0 grid-fade opacity-30" />
-        <div className="absolute inset-0 bg-gradient-to-br from-brand-cyan/[0.04] via-transparent to-brand-purple/[0.06]" />
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+        {/* Conversa grande — mesma conversa do rail */}
+        <section className="xl:col-span-2 min-w-0" aria-label="Conversa com o CLOCK">
+          <ClockChat />
+        </section>
 
-        <div className="relative grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-8 p-8 items-center">
-          {/* Orb */}
-          <div className="flex justify-center">
-            <motion.div
-              className="relative"
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.6, ease: [0.34, 1.56, 0.64, 1] }}
-            >
-              <div className="w-44 h-44 rounded-full clock-orb" />
-              <div className="absolute inset-0 rounded-full border border-brand-cyan/20 animate-ping" />
-            </motion.div>
-          </div>
-
-          {/* Summary */}
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-success/10 border border-success/20 text-[10px] font-semibold uppercase tracking-wider text-success mb-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              Online · processando 1.247 eventos/min
-            </div>
-            <h2 className="font-display text-2xl font-bold tracking-tight leading-snug">
-              &ldquo;Hoje sua operação está <span className="text-success">95,2%</span> saudável.
-              Receita parcial está <span className="text-warning">−24%</span> da meta diária.
-              Recomendo disparar a campanha de win-back no horário de pico.&rdquo;
-            </h2>
-            <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
-              Última análise há 38 segundos · próxima em 1m22s · cobertura: receita, ocupação, máquinas, clientes, energia, marketing, financeiro.
-            </p>
-            <div className="flex items-center gap-2 mt-4">
-              <Button size="sm" className="text-xs h-8 bg-brand-cyan hover:bg-brand-cyan/90 text-primary-foreground">
-                <Sparkles className="w-3 h-3 mr-1" /> Ver plano de ação
-              </Button>
-              <Button variant="outline" size="sm" className="text-xs h-8">
-                <Mic className="w-3 h-3 mr-1" /> Falar com CLOCK
-              </Button>
-            </div>
-          </div>
+        {/* Coluna lateral: novidades + voz */}
+        <div className="space-y-5 min-w-0">
+          <PainelNovidades />
+          <SeletorVoz podeEscolher={podeEscolherVoz} />
         </div>
       </div>
 
-      {/* CHAT + INSIGHTS GRID */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Chat composer */}
-        <ChartCard
-          className="xl:col-span-2"
-          title="Conversa com CLOCK"
-          subtitle="Pergunte sobre qualquer indicador, cliente ou cenário"
-          height={420}
-          actions={<Button variant="ghost" size="sm" className="text-xs h-7"><History className="w-3 h-3 mr-1" /> Histórico</Button>}
-        >
-          <div className="flex flex-col h-full">
-            {/* Messages */}
-            <div className="flex-1 space-y-3 overflow-auto pr-2">
-              <ChatBubble role="user" text="qual máquina deu mais lucro em maio?" />
-              <ChatBubble
-                role="clock"
-                text="Em maio até hoje, a SC-02 (Secadora 22kg) lidera com R$ 1.940 brutos · margem 64% após energia/química. A LV-04 está abaixo da média (R$ 412) com ocupação de 22% e alerta técnico em aberto. Quer que eu inclua isso no relatório semanal?"
-              />
-              <ChatBubble role="user" text="prepara o resumo para enviar amanhã 8h" />
-              <ChatBubble
-                role="clock"
-                text="Feito. Resumo agendado para 14/05 08h00 com: faturamento por máquina, top 3 horários, alertas pendentes e 2 sugestões de ação. Confirmação será enviada pelo WhatsApp."
-              />
-            </div>
-
-            {/* Composer */}
-            <div className="mt-3 rounded-xl border border-border bg-surface-glass p-2.5">
-              <div className="flex items-end gap-2">
-                <textarea
-                  rows={2}
-                  placeholder="Pergunte algo como: 'qual a previsão de fechamento?', 'agende relatório semanal', 'simule cenário de aumento de ticket'..."
-                  className="flex-1 bg-transparent text-xs outline-none resize-none placeholder:text-muted-foreground/70"
-                />
-                <Button size="icon" className="h-8 w-8 bg-brand-cyan hover:bg-brand-cyan/90 text-primary-foreground shrink-0">
-                  <Send className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-              <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border">
-                <PromptChip text="Resumir o dia" />
-                <PromptChip text="Prever fechamento" />
-                <PromptChip text="Sugerir ação" />
-                <PromptChip text="Comparar com mês anterior" />
-              </div>
-            </div>
-          </div>
-        </ChartCard>
-
-        {/* Activity timeline */}
-        <ChartCard title="Histórico de inteligência" subtitle="Últimas 24 horas" height={420}>
-          <div className="space-y-3 overflow-auto h-full pr-1">
-            {HISTORY.map((h, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="flex gap-3"
-              >
-                <div className="text-[10px] font-mono text-muted-foreground pt-0.5 w-10 shrink-0">
-                  {h.time}
-                </div>
-                <div className={`flex-1 rounded-lg border p-2.5 ${sevToTone(h.severity)}`}>
-                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1 opacity-70">
-                    {h.type}
-                  </div>
-                  <p className="text-[12px] leading-relaxed text-foreground">{h.text}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </ChartCard>
-      </div>
-
-      {/* PREDICTIONS + INSIGHTS */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <ChartCard
-          className="xl:col-span-2"
-          title="Previsões em tempo real"
-          subtitle="Modelos de série temporal · ajuste contínuo"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <PredictionTile
-              label="Fechamento do dia"
-              value="R$ 487"
-              delta="−24% vs meta"
-              trend="down"
-              data={TIMELINE}
-            />
-            <PredictionTile
-              label="Pico previsto"
-              value="20h12"
-              delta="confiança 87%"
-              trend="up"
-              data={TIMELINE.slice(2)}
-            />
-            <PredictionTile
-              label="Próxima falha"
-              value="LV-04"
-              delta="janela 48h"
-              trend="warn"
-              data={TIMELINE.map(t => ({ ...t, value: t.value * 0.6 }))}
-            />
-          </div>
-        </ChartCard>
-
-        <ChartCard title="Ações sugeridas" subtitle="Plano executável de 5 itens" height={280}>
-          <ul className="space-y-2">
-            {[
-              { icon: MessageSquare, t: "Disparar campanha win-back · 107 inativos", e: "+R$ 1.123/mês" },
-              { icon: Wrench, t: "Agendar manutenção LV-04 · janela 03h", e: "evita downtime" },
-              { icon: Wallet, t: "Renegociar aluguel · proposta R$ 2.500", e: "+R$ 1.500/mês" },
-              { icon: BarChart3, t: "Teste A/B mix premium SC-01/SC-02", e: "+R$ 2.400/mês" },
-              { icon: Zap, t: "Reduzir iluminação 03h–05h em 70%", e: "−R$ 220/mês" },
-            ].map((a, i) => (
-              <li key={i} className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-secondary/40 transition-smooth cursor-pointer group">
-                <div className="w-7 h-7 rounded-md bg-brand-cyan/12 text-brand-cyan flex items-center justify-center shrink-0">
-                  <a.icon className="w-3.5 h-3.5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-semibold leading-snug">{a.t}</div>
-                  <div className="text-[10px] text-success font-mono mt-0.5">{a.e}</div>
-                </div>
-                <ArrowRight className="w-3 h-3 text-muted-foreground group-hover:text-brand-cyan transition-smooth" />
-              </li>
-            ))}
-          </ul>
-        </ChartCard>
-      </div>
-
-      {/* INSIGHTS GALLERY */}
-      <div>
-        <div className="flex items-end justify-between mb-3">
-          <div>
-            <h3 className="font-display font-semibold text-base tracking-tight">Análises de desvio</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Detectadas pela CLOCK nos últimos 7 dias</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          <InsightCard severity="danger" icon={TrendingDown} title="Faturamento −18% projetado em Maio" body="Ritmo atual sustenta R$ 3.243 vs meta R$ 4.000. Causa principal: queda de 22% nas vendas no horário 18h–20h." cta="Ver análise completa" />
-          <InsightCard severity="warn" icon={AlertTriangle} title="LV-04 com 31% mais health-checks" body="Padrão consistente com bobina de aquecimento desgastada. Janela de manutenção ideal: amanhã 03h00." cta="Agendar técnico" />
-          <InsightCard severity="info" icon={Wand2} title="Cluster de 8 clientes premium identificado" body="Compram 3+ ciclos/semana com ticket R$ 28+. Programa de fidelidade pode aumentar LTV em 35%." cta="Criar programa" />
-          <InsightCard severity="info" icon={Clock} title="Ociosidade entre 03h–05h custa R$ 1.890/mês" body="Energia base + aluguel rateado nesta janela sem retorno operacional. Standby automatizado economiza 60%." cta="Modelar standby" />
-          <InsightCard severity="success" icon={BarChart3} title="Quartas-feiras superam projeção em +12%" body="Padrão consistente nas últimas 8 semanas. Aproveitar para programar campanhas e estoque de químicos." cta="Planejar quartas" />
-          <InsightCard severity="info" icon={Bot} title="CLOCK aprendeu novo padrão sazonal" body="Modelo identificou ciclo quinzenal de pagamento que afeta picos de receita ±18%. Aplicado nas próximas previsões." cta="Ver modelo" />
-        </div>
-      </div>
+      <HistoricoAcoes acoes={acoes} indisponivel={historicoIndisponivel} />
     </div>
   );
 }
 
-function ChatBubble({ role, text }: { role: "user" | "clock"; text: string }) {
-  if (role === "user") {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl rounded-tr-sm bg-brand-cyan/12 border border-brand-cyan/20 px-3.5 py-2 text-[12px] text-foreground">
-          {text}
-        </div>
-      </div>
-    );
-  }
+// ─── Estado atual ──────────────────────────────────────────────────────────
+
+function EstadoBadge({ estado, onParar }: { estado: EstadoClock; onParar: () => void }) {
+  const cor =
+    estado === "ouvindo" ? "bg-danger"
+      : estado === "falando" ? "bg-brand-cyan"
+        : estado === "pensando" ? "bg-warning"
+          : "bg-success";
   return (
-    <div className="flex gap-2 items-start">
-      <div className="w-7 h-7 rounded-full clock-orb shrink-0" />
-      <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-secondary/60 border border-border px-3.5 py-2 text-[12px] leading-relaxed">
-        {text}
-      </div>
+    <div className="flex items-center gap-2">
+      <span className="inline-flex items-center gap-2 px-3 h-8 rounded-lg border border-border bg-card text-xs font-semibold">
+        <span className={cn("w-2 h-2 rounded-full", cor, estado !== "ocioso" && "animate-pulse")} />
+        {ROTULO_ESTADO[estado]}
+      </span>
+      {estado !== "ocioso" && (
+        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={onParar}>
+          <Square className="w-3 h-3 mr-1" /> Parar
+        </Button>
+      )}
     </div>
   );
 }
 
-function PromptChip({ text }: { text: string }) {
-  return (
-    <button className="text-[10px] px-2 py-0.5 rounded bg-secondary hover:bg-muted transition-smooth">
-      {text}
-    </button>
-  );
-}
+// ─── Cartão base ───────────────────────────────────────────────────────────
 
-function PredictionTile({
-  label, value, delta, trend, data,
+function Cartao({
+  icone: Icone,
+  titulo,
+  subtitulo,
+  acoes,
+  children,
+  className,
 }: {
-  label: string;
-  value: string;
-  delta: string;
-  trend: "up" | "down" | "warn";
-  data: typeof TIMELINE;
+  icone: React.ComponentType<{ className?: string }>;
+  titulo: string;
+  subtitulo?: string;
+  acoes?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
 }) {
-  const color = trend === "down" ? "var(--danger)" : trend === "warn" ? "var(--warning)" : "var(--brand-cyan)";
   return (
-    <div className="rounded-xl border border-border bg-card/40 p-4">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">{label}</div>
-      <div className="font-mono font-bold text-2xl">{value}</div>
-      <div className="text-[11px] mt-1" style={{ color }}>{delta}</div>
-      <div className="h-12 mt-3 -mx-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
-            <defs>
-              <linearGradient id={`grad-${label}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.5} />
-                <stop offset="100%" stopColor={color} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <Area type="monotone" dataKey="value" stroke={color} strokeWidth={1.5} fill={`url(#grad-${label})`} />
-          </AreaChart>
-        </ResponsiveContainer>
+    <section className={cn("rounded-2xl border border-border bg-card", className)}>
+      <header className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-border">
+        <div className="flex items-start gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-brand-cyan/10 text-brand-cyan flex items-center justify-center shrink-0">
+            <Icone className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="font-display font-semibold text-[15px] tracking-tight">{titulo}</h2>
+            {subtitulo && <p className="text-[11.5px] text-muted-foreground mt-0.5">{subtitulo}</p>}
+          </div>
+        </div>
+        {acoes && <div className="flex items-center gap-1.5 shrink-0">{acoes}</div>}
+      </header>
+      <div className="p-5">{children}</div>
+    </section>
+  );
+}
+
+function Vazio({ children }: { children: React.ReactNode }) {
+  return <p className="text-[12.5px] text-muted-foreground leading-relaxed">{children}</p>;
+}
+
+// ─── Briefing + alertas ────────────────────────────────────────────────────
+
+function tomSeveridade(sev: string | null | undefined): { classe: string; Icone: React.ComponentType<{ className?: string }> } {
+  const s = (sev ?? "").toLowerCase();
+  if (["alta", "alto", "critica", "crítica", "critico", "crítico", "danger"].includes(s)) {
+    return { classe: "border-danger/30 bg-danger/10 text-danger", Icone: ShieldAlert };
+  }
+  if (["media", "média", "medio", "médio", "atencao", "atenção", "warn", "warning"].includes(s)) {
+    return { classe: "border-warning/30 bg-warning/10 text-warning", Icone: AlertTriangle };
+  }
+  return { classe: "border-brand-cyan/30 bg-brand-cyan/10 text-brand-cyan", Icone: Bell };
+}
+
+function PainelNovidades() {
+  const { novidades, falarTexto, marcarNovidadesVistas, recarregarNovidades, vozDisponivel } = useClock();
+  const [atualizando, setAtualizando] = React.useState(false);
+  const { briefing, alertas } = novidades;
+
+  async function atualizar() {
+    setAtualizando(true);
+    await recarregarNovidades();
+    setAtualizando(false);
+  }
+
+  return (
+    <Cartao
+      icone={Newspaper}
+      titulo="Briefing e alertas"
+      subtitulo="O que o CLOCK separou para você e ainda não foi visto"
+      acoes={
+        <button
+          onClick={() => void atualizar()}
+          aria-label="Atualizar novidades"
+          title="Atualizar"
+          className="p-1.5 rounded-md hover:bg-secondary transition-smooth text-muted-foreground"
+        >
+          <RefreshCw className={cn("w-3.5 h-3.5", atualizando && "animate-spin")} />
+        </button>
+      }
+    >
+      <div className="space-y-4">
+        {briefing ? (
+          <article className="rounded-xl border border-brand-cyan/30 bg-brand-cyan/[0.06] p-4">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-brand-cyan">Briefing do dia</span>
+              <span className="text-[10.5px] text-muted-foreground font-mono">{dataHora(briefing.criado_em)}</span>
+            </div>
+            <h3 className="font-display font-semibold text-[14px] leading-snug">{briefing.titulo}</h3>
+            <p className="text-[12.5px] text-foreground/90 leading-relaxed mt-1.5 whitespace-pre-line">{briefing.texto_fala}</p>
+            <div className="flex items-center gap-2 mt-3">
+              <Button
+                size="sm"
+                className="h-7 text-[11px] bg-brand-cyan hover:bg-brand-cyan/90 text-primary-foreground"
+                disabled={!vozDisponivel}
+                onClick={() => falarTexto(briefing.texto_fala)}
+              >
+                <Volume2 className="w-3 h-3 mr-1" /> Ouvir
+              </Button>
+              <Button variant="outline" size="sm" className="h-7 text-[11px]" onClick={() => void marcarNovidadesVistas([briefing.id])}>
+                <Check className="w-3 h-3 mr-1" /> Já vi
+              </Button>
+            </div>
+          </article>
+        ) : (
+          <Vazio>Nenhum briefing novo. O resumo do dia aparece aqui assim que a rotina diária do CLOCK gerar.</Vazio>
+        )}
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Alertas {alertas.length > 0 && `· ${alertas.length}`}
+            </span>
+            {alertas.length > 1 && (
+              <button
+                onClick={() => void marcarNovidadesVistas(alertas.map((a) => a.id))}
+                className="text-[11px] font-semibold text-brand-cyan hover:underline"
+              >
+                Marcar todos como vistos
+              </button>
+            )}
+          </div>
+          {alertas.length === 0 ? (
+            <Vazio>Sem alertas pendentes.</Vazio>
+          ) : (
+            <ul className="space-y-2">
+              {alertas.map((a) => (
+                <ItemAlerta
+                  key={a.id}
+                  alerta={a}
+                  podeOuvir={vozDisponivel}
+                  onOuvir={() => falarTexto(a.texto_fala)}
+                  onVisto={() => void marcarNovidadesVistas([a.id])}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
-    </div>
+    </Cartao>
+  );
+}
+
+function ItemAlerta({
+  alerta, podeOuvir, onOuvir, onVisto,
+}: { alerta: AlertaClock; podeOuvir: boolean; onOuvir: () => void; onVisto: () => void }) {
+  const { classe, Icone } = tomSeveridade(alerta.severidade);
+  return (
+    <li className={cn("rounded-xl border p-3", classe)}>
+      <div className="flex items-start gap-2">
+        <Icone className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[12.5px] font-semibold text-foreground leading-snug">{alerta.titulo}</div>
+          <p className="text-[12px] text-foreground/80 leading-relaxed mt-0.5">{alerta.texto_fala}</p>
+          <div className="flex items-center gap-3 mt-2">
+            {alerta.href && alerta.href.startsWith("/") && !alerta.href.startsWith("//") && (
+              <Link href={alerta.href} className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-cyan hover:underline">
+                Abrir <ArrowRight className="w-3 h-3" />
+              </Link>
+            )}
+            {podeOuvir && (
+              <button onClick={onOuvir} className="inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground">
+                <Volume2 className="w-3 h-3" /> Ouvir
+              </button>
+            )}
+            <button onClick={onVisto} className="inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground">
+              <Check className="w-3 h-3" /> Visto
+            </button>
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+// ─── Seletor de voz ────────────────────────────────────────────────────────
+
+function SeletorVoz({ podeEscolher }: { podeEscolher: boolean }) {
+  const { falarTexto, interromper, estado, vozDisponivel } = useClock();
+  const [dados, setDados] = React.useState<RespostaVozes | null>(null);
+  const [carregando, setCarregando] = React.useState(true);
+  const [erro, setErro] = React.useState<string | null>(null);
+  const [salvando, setSalvando] = React.useState<string | null>(null);
+  const [tocando, setTocando] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/clock/vozes", { cache: "no-store" });
+        if (!r.ok) throw new Error(String(r.status));
+        const j = (await r.json()) as Partial<RespostaVozes>;
+        if (vivo) setDados({ atual: j.atual ?? null, candidatas: Array.isArray(j.candidatas) ? j.candidatas : [] });
+      } catch {
+        if (vivo) setErro("Não consegui carregar a lista de vozes agora.");
+      } finally {
+        if (vivo) setCarregando(false);
+      }
+    })();
+    return () => { vivo = false; };
+  }, []);
+
+  // A amostra terminou (ou foi cortada): limpa o destaque do botão.
+  // Ajuste durante o render na mudança de estado (sem efeito em cascata).
+  const [estadoVisto, setEstadoVisto] = React.useState(estado);
+  if (estado !== estadoVisto) {
+    setEstadoVisto(estado);
+    if (estado !== "falando") setTocando(null);
+  }
+
+  function ouvirAmostra(v: VozCandidata) {
+    if (tocando === v.voice_id) {
+      interromper();
+      setTocando(null);
+      return;
+    }
+    setTocando(v.voice_id);
+    falarTexto(AMOSTRA_VOZ, { voiceId: v.voice_id });
+  }
+
+  async function usar(v: VozCandidata) {
+    setSalvando(v.voice_id);
+    setErro(null);
+    try {
+      const r = await fetch("/api/clock/vozes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice_id: v.voice_id }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { erro?: string; em_uso?: string };
+      if (!r.ok) throw new Error(j.erro ?? "Não foi possível salvar a voz.");
+      // em_uso: a voz que de fato toca (a env ELEVENLABS_VOICE_ID tem precedência)
+      const emUso = j.em_uso ?? v.voice_id;
+      setDados((d) => (d ? { ...d, atual: emUso } : d));
+      if (emUso !== v.voice_id) {
+        setErro("A escolha foi salva, mas a voz definida na configuração do servidor continua valendo até ser removida.");
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível salvar a voz.");
+    } finally {
+      setSalvando(null);
+    }
+  }
+
+  return (
+    <Cartao
+      icone={Volume2}
+      titulo="Voz do CLOCK"
+      subtitulo={podeEscolher ? "Ouça as amostras e escolha a voz da rede" : "Só administradores trocam a voz"}
+    >
+      {carregando ? (
+        <div className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando vozes
+        </div>
+      ) : !dados || dados.candidatas.length === 0 ? (
+        <Vazio>{erro ?? "Nenhuma voz disponível."}</Vazio>
+      ) : (
+        <div className="space-y-2">
+          {erro && <p className="text-[12px] text-danger">{erro}</p>}
+          {!vozDisponivel && (
+            <p className="text-[11.5px] text-muted-foreground">O motor de voz ainda não carregou neste navegador; as amostras ficam disponíveis assim que ele subir.</p>
+          )}
+          <ul className="space-y-2">
+            {dados.candidatas.map((v) => {
+              const atual = dados.atual === v.voice_id;
+              return (
+                <li
+                  key={v.voice_id}
+                  className={cn(
+                    "rounded-xl border p-3 transition-smooth",
+                    atual ? "border-brand-cyan/50 bg-brand-cyan/[0.06]" : "border-border",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold flex items-center gap-1.5">
+                        {v.nome}
+                        {atual && (
+                          <span className="inline-flex items-center gap-0.5 text-[9.5px] font-bold uppercase tracking-wider text-brand-cyan">
+                            <CheckCircle2 className="w-3 h-3" /> Em uso
+                          </span>
+                        )}
+                      </div>
+                      {v.descricao && <p className="text-[11.5px] text-muted-foreground leading-relaxed mt-0.5">{v.descricao}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[11px]"
+                      disabled={!vozDisponivel}
+                      onClick={() => ouvirAmostra(v)}
+                    >
+                      {tocando === v.voice_id
+                        ? <><Square className="w-3 h-3 mr-1" /> Parar</>
+                        : <><Play className="w-3 h-3 mr-1" /> Ouvir amostra</>}
+                    </Button>
+                    {podeEscolher && !atual && (
+                      <Button
+                        size="sm"
+                        className="h-7 text-[11px] bg-brand-cyan hover:bg-brand-cyan/90 text-primary-foreground"
+                        disabled={salvando !== null}
+                        onClick={() => void usar(v)}
+                      >
+                        {salvando === v.voice_id
+                          ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          : <Check className="w-3 h-3 mr-1" />}
+                        Usar esta voz
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </Cartao>
+  );
+}
+
+// ─── Histórico de ações ────────────────────────────────────────────────────
+
+const STATUS_ACAO: Record<string, { rotulo: string; classe: string; Icone: React.ComponentType<{ className?: string }> }> = {
+  pendente: { rotulo: "Aguardando confirmação", classe: "text-warning bg-warning/10 border-warning/30", Icone: Clock3 },
+  executada: { rotulo: "Executada", classe: "text-success bg-success/10 border-success/30", Icone: CheckCircle2 },
+  cancelada: { rotulo: "Cancelada", classe: "text-muted-foreground bg-secondary border-border", Icone: CircleSlash },
+  expirada: { rotulo: "Expirada", classe: "text-muted-foreground bg-secondary border-border", Icone: Clock3 },
+  erro: { rotulo: "Falhou", classe: "text-danger bg-danger/10 border-danger/30", Icone: XCircle },
+};
+
+const ROTULO_RISCO: Record<string, string> = { baixo: "Risco baixo", medio: "Risco médio", alto: "Risco alto" };
+
+function HistoricoAcoes({ acoes, indisponivel }: { acoes: AcaoHistorico[]; indisponivel: boolean }) {
+  const router = useRouter();
+  const [atualizando, startTransition] = React.useTransition();
+
+  return (
+    <Cartao
+      icone={History}
+      titulo="Histórico de ações"
+      subtitulo="Tudo que o CLOCK propôs ou executou a seu pedido, com auditoria"
+      acoes={
+        <button
+          onClick={() => startTransition(() => router.refresh())}
+          aria-label="Atualizar histórico"
+          title="Atualizar"
+          className="p-1.5 rounded-md hover:bg-secondary transition-smooth text-muted-foreground"
+        >
+          <RefreshCw className={cn("w-3.5 h-3.5", atualizando && "animate-spin")} />
+        </button>
+      }
+    >
+      {indisponivel ? (
+        <Vazio>Não consegui ler o histórico agora. Tente atualizar em instantes.</Vazio>
+      ) : acoes.length === 0 ? (
+        <Vazio>
+          Nenhuma ação ainda. Quando você pedir algo que altera dados, o CLOCK mostra o resumo e o impacto, e só executa depois do seu Confirmar.
+        </Vazio>
+      ) : (
+        <ul className="divide-y divide-border">
+          {acoes.map((a) => {
+            const st = STATUS_ACAO[a.status] ?? { rotulo: a.status, classe: "text-muted-foreground bg-secondary border-border", Icone: Sparkles };
+            return (
+              <li key={a.id} className="py-3 first:pt-0 last:pb-0 flex items-start gap-3">
+                <div className="text-[10.5px] font-mono text-muted-foreground w-[82px] shrink-0 pt-0.5">{dataHora(a.criado_em)}</div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] leading-relaxed">{a.resumo || a.acao}</p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                    <span className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-semibold", st.classe)}>
+                      <st.Icone className="w-3 h-3" /> {st.rotulo}
+                    </span>
+                    {a.risco && ROTULO_RISCO[a.risco] && (
+                      <span className="text-[10.5px] text-muted-foreground">{ROTULO_RISCO[a.risco]}</span>
+                    )}
+                    {a.decidido_em && (
+                      <span className="text-[10.5px] text-muted-foreground">decidido em {dataHora(a.decidido_em)}</span>
+                    )}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Cartao>
   );
 }

@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { useAbaUrl } from "@/components/shell/use-aba-url";
 import type { Tarefa, TarefaResumo } from "@/lib/tarefas/queries";
 import { criarTarefa, atualizarTarefa, excluirTarefa, type TarefaInput } from "@/lib/tarefas/actions";
 import type { KanbanColuna } from "@/lib/tarefas/kanban-queries";
@@ -50,7 +51,8 @@ export function TarefasView({
   rotinas: Rotina[];
   colunasKanban: KanbanColuna[];
 }) {
-  const [view, setView] = React.useState<"lista" | "kanban" | "calendario" | "gantt" | "observador">("kanban");
+  // Aba na URL (?aba=) — o CLOCK abre a tela já na visão certa
+  const [view, setView] = useAbaUrl(["kanban", "lista", "calendario", "gantt", "observador"] as const, "kanban");
   const [busca, setBusca] = React.useState("");
   const [filtroStatus, setFiltroStatus] = React.useState<Tarefa["status"] | "todos">("todos");
   const [filtroPri, setFiltroPri] = React.useState<Tarefa["prioridade"] | "todas">("todas");
@@ -91,7 +93,7 @@ export function TarefasView({
       </div>
 
       {/* Switcher de view */}
-      <Tabs.Root value={view} onValueChange={(v) => setView(v as typeof view)}>
+      <Tabs.Root value={view} onValueChange={setView}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <Tabs.List className="flex gap-1 rounded-xl border border-border bg-card p-1 w-fit">
             <ViewTab value="kanban"     icon={LayoutGrid} label="Kanban" />

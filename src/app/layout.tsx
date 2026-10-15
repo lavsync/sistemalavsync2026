@@ -3,6 +3,7 @@ import { Inter, Sora, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CookieBanner } from "@/components/legal/cookie-banner";
+import { ClockProvider } from "@/components/clock/clock-provider";
 import "./globals.css";
 
 // Brandbook §04: Inter = corpo / UI · Sora = títulos / KPIs / wordmark / CTA
@@ -76,8 +77,12 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <TooltipProvider delayDuration={120}>
-            {children}
-            <CookieBanner />
+            {/* CLOCK v2: conversa e voz vivem aqui e sobrevivem à troca de rota.
+                Fica inerte em páginas públicas até um AppShell autenticado ativar. */}
+            <ClockProvider>
+              {children}
+              <CookieBanner />
+            </ClockProvider>
           </TooltipProvider>
         </ThemeProvider>
       </body>

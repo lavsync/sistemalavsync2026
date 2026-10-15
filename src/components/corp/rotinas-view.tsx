@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { useAbaUrl } from "@/components/shell/use-aba-url";
 import type {
   OrgUnit, Categoria, RoutineTemplate, Routine, DashboardRotinas,
   Frequencia, Criticidade,
@@ -71,7 +72,8 @@ export function RotinasCorporativasView({
   usuarios: Usuario[];
   minhasHoje: RotinaHoje[];
 }) {
-  const [tab, setTab] = React.useState<"hoje" | "dashboard" | "organograma" | "biblioteca" | "rotinas">("hoje");
+  // Aba na URL (?aba=) — o CLOCK abre a tela já na aba certa
+  const [tab, setTab] = useAbaUrl(["hoje", "dashboard", "organograma", "biblioteca", "rotinas"] as const, "hoje");
   const concluidasHoje = minhasHoje.filter((r) => r.ja_concluida_hoje).length;
   const pendentesHoje = minhasHoje.length - concluidasHoje;
 
@@ -83,7 +85,7 @@ export function RotinasCorporativasView({
         subtitle={`${rotinas.length} rotinas ativas · ${templates.length} templates disponíveis · estrutura organizacional 10 níveis`}
       />
 
-      <Tabs.Root value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+      <Tabs.Root value={tab} onValueChange={setTab}>
         <Tabs.List className="flex flex-wrap gap-1 rounded-xl border border-border bg-card p-1 w-fit">
           <TabBtn value="hoje"        icon={Sun}        label={`Minhas Rotinas Hoje (${pendentesHoje})`} />
           <TabBtn value="dashboard"   icon={BarChart3}  label="Dashboard" />
