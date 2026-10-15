@@ -11,6 +11,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "@hello-pangea/dnd": "^18.0.1",
+    "@react-pdf/renderer": "^4.9.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "@types/qrcode": "^1.5.6",

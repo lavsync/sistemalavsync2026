@@ -23,6 +23,7 @@ import {
   mapearDespesasReais, rbt12Legal, normDesc,
 } from "@/lib/financeiro/engine";
 import { CustoVariavelReal } from "./custo-variavel-real";
+import { DRERelatorios } from "./dre-relatorios";
 import type {
   UnidadeConfig, InvestimentoCategoria, LancamentoMes,
 } from "@/lib/financeiro/queries";
@@ -169,6 +170,7 @@ export function FinanceiroView(props: FinanceiroData) {
           <TabBtn value="painel"    icon={LayoutDashboard} label="Painel Geral" />
           <TabBtn value="invest"    icon={Briefcase}       label="Investimento" />
           <TabBtn value="dre"       icon={FileText}        label="DRE Mensal" />
+          <TabBtn value="relatorios" icon={Download}       label="Relatórios DRE" />
           <TabBtn value="config"    icon={Settings}        label="Configurações" />
         </Tabs.List>
 
@@ -204,6 +206,18 @@ export function FinanceiroView(props: FinanceiroData) {
             investimentoTotal={investimentoTotalProjetado}
             mesAtualIdx={mesAtualIdx}
             overridesPorMes={overridesPorMes}
+          />
+        </Tabs.Content>
+
+        {/* RELATÓRIOS DRE (PDF para sócios) */}
+        <Tabs.Content value="relatorios" className="outline-none mt-5 space-y-5">
+          <DRERelatorios
+            unidades={data.unidades}
+            anoInicial={Math.min(
+              new Date().getFullYear(),
+              data.config?.ano_inauguracao ?? new Date().getFullYear(),
+              ...data.lancamentos.map((l) => l.ano),
+            )}
           />
         </Tabs.Content>
 
