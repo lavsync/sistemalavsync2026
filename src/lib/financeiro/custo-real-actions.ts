@@ -57,6 +57,7 @@ async function recalibrarPercentual(
   const { data } = await sb.from("despesas")
     .select("descricao, valor, vencimento, data_competencia")
     .eq("unidade_id", unidadeId)
+    .neq("status", "cancelada")
     .ilike("descricao", descricao.replace(/[%_]/g, "\\$&"));
   const porMes = new Map<string, number>();
   for (const d of (data ?? []) as Array<{ descricao: string; valor: number | string; vencimento: string; data_competencia: string | null }>) {
@@ -162,5 +163,21 @@ export async function removerCustoVariavelReal(unidadeId: string, despesaId: str
     return { ok: true };
   } catch (e) {
     return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Depois de editar/excluir uma despesa no DRE Mensal: se a descrição é de um
+ *  custo variável (não Simples), recalibra o % de referência dele. Silencioso. */
+export async function recalibrarCustoVariavelPorDescricao(unidadeId: string, descricao: string): Promise<void> {
+  try {
+    const { sb } = await contexto(unidadeId);
+    const { data } = await sb.from("financeiro_custos_variaveis").select("id, descricao, tipo").eq("unidade_id", unidadeId);
+    const custo = ((data ?? []) as Array<{ id: string; descricao: string; tipo: string }>)
+      .find((c) => c.tipo !== "simples" && normDesc(c.descricao) === normDesc(descricao));
+    if (!custo) return;
+    const fatPorMes = await getFaturamentoPorMes(unidadeId);
+    await recalibrarPercentual(sb, unidadeId, custo.id, custo.descricao, fatPorMes);
+  } catch (e) {
+    console.error("[financeiro] recalibrar custo variável:", e instanceof Error ? e.message : e);
   }
 }

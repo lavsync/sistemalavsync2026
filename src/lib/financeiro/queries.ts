@@ -179,6 +179,7 @@ export async function getFaturamentoMensalVendas(
       .select("data_venda, valor, quantidade_ciclos")
       .eq("unidade_id", unidadeId)
       .eq("situacao", "sucesso")
+      .order("id")
       .range(r.from, r.to),
   );
   const buckets = new Map<string, { ano: number; mes: number; faturamento: number; qtdVendas: number; ciclos: number }>();
@@ -273,12 +274,16 @@ export function calcInvestimentoTotal(cats: InvestimentoCategoria[]): { projetad
 // troca o custo projetado pelo valor pago quando há lançamento.
 export type DespesaReal = {
   id: string;
+  categoria_id: string | null;
   categoria_nome: string;
   descricao: string;
   valor: number;
   vencimento: string;
   competencia: string;           // "AAAA-MM"
   pago_em: string | null;
+  status: "aberta" | "paga" | "vencida";
+  data_competencia: string | null;
+  observacoes: string | null;
 };
 
 export async function getDespesasPorMes(unidadeId: string): Promise<Record<string, DespesaReal[]>> {
@@ -286,14 +291,19 @@ export async function getDespesasPorMes(unidadeId: string): Promise<Record<strin
   type Row = {
     id: string; descricao: string; valor: number | string; vencimento: string;
     data_competencia: string | null; pago_em: string | null;
+    status: "aberta" | "paga" | "vencida" | "cancelada";
+    categoria_id: string | null; observacoes: string | null;
     categoria: { nome: string } | Array<{ nome: string }> | null;
   };
+  // Canceladas não entram em nada (mesmo filtro do motor em dre-dados.ts)
   const rows = await paginarTodos<Row>((r) =>
     supabase
       .from("despesas")
-      .select("id, descricao, valor, vencimento, data_competencia, pago_em, categoria:categorias_financeiras(nome)")
+      .select("id, descricao, valor, vencimento, data_competencia, pago_em, status, categoria_id, observacoes, categoria:categorias_financeiras(nome)")
       .eq("unidade_id", unidadeId)
+      .neq("status", "cancelada")
       .order("vencimento")
+      .order("id")
       .range(r.from, r.to),
   );
   const out: Record<string, DespesaReal[]> = {};
@@ -302,15 +312,32 @@ export async function getDespesasPorMes(unidadeId: string): Promise<Record<strin
     const competencia = (r.data_competencia ?? r.vencimento).slice(0, 7);
     (out[competencia] ??= []).push({
       id: r.id,
+      categoria_id: r.categoria_id,
       categoria_nome: cat ?? "Sem categoria",
       descricao: r.descricao,
       valor: Number(r.valor) || 0,
       vencimento: r.vencimento,
       competencia,
       pago_em: r.pago_em,
+      status: r.status === "cancelada" ? "aberta" : r.status,
+      data_competencia: r.data_competencia,
+      observacoes: r.observacoes,
     });
   }
   return out;
+}
+
+/** Categorias financeiras de despesa do tenant (datalist do DRE Mensal). */
+export async function getCategoriasDespesa(tenantId?: string | null): Promise<Array<{ id: string; nome: string }>> {
+  const supabase = await createClient();
+  let q = supabase
+    .from("categorias_financeiras")
+    .select("id, nome")
+    .in("tipo", ["despesa", "ambos"])
+    .order("nome");
+  if (tenantId) q = q.eq("tenant_id", tenantId);
+  const { data } = await q;
+  return ((data ?? []) as Array<{ id: string; nome: string }>);
 }
 
 /** Faturamento real por mês "AAAA-MM": vendas (fuso BR) têm prioridade; senão lançamento manual. */

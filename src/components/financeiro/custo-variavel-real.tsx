@@ -12,6 +12,8 @@ import { normDesc, nomeCategoriaFinanceira, type CustoVariavel } from "@/lib/fin
 import type { LancamentoMes } from "@/lib/financeiro/queries";
 import { lancarCustoVariavelReal, removerCustoVariavelReal } from "@/lib/financeiro/custo-real-actions";
 import type { DespesaItem } from "./financeiro-view";
+import { parseValorBR } from "@/lib/financeiro/valor-br";
+import { nowBR } from "@/lib/timezone-br";
 
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -27,14 +29,6 @@ const TIPOS = [
   { v: "csp", l: "Custo do serviço (CSP)" },
   { v: "royalties", l: "Royalties" },
 ] as const;
-
-function parseValor(s: string): number {
-  // aceita "1.234,56", "1234,56" e "1234.56"
-  const t = s.trim();
-  if (!t) return 0;
-  const n = t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t;
-  return parseFloat(n) || 0;
-}
 
 export function CustoVariavelReal({ unidadeId, custos, lancamentos, despesasPorMes }: {
   unidadeId: string;
@@ -53,8 +47,8 @@ export function CustoVariavelReal({ unidadeId, custos, lancamentos, despesasPorM
   const meses = React.useMemo(() => [...fatPorMes.keys()].sort().reverse(), [fatPorMes]);
 
   // Default = último mês FECHADO (o mês corrente ainda está em aberto)
-  const hoje = new Date();
-  const atual = chaveMes(hoje.getFullYear(), hoje.getMonth() + 1);
+  const hoje = nowBR();
+  const atual = chaveMes(hoje.ano, hoje.mes);
   const [mes, setMes] = React.useState(meses.find((k) => k < atual) ?? meses[0] ?? "");
   const [custoSel, setCustoSel] = React.useState(custosLancaveis.find((c) => c.tipo === "variavel")?.id ?? NOVO);
   const [novoNome, setNovoNome] = React.useState("");
@@ -66,7 +60,7 @@ export function CustoVariavelReal({ unidadeId, custos, lancamentos, despesasPorM
   const custo = custosLancaveis.find((c) => c.id === custoSel) ?? null;
   const descricao = custo ? custo.descricao : novoNome.trim();
   const fatMes = fatPorMes.get(mes) ?? 0;
-  const v = parseValor(valor);
+  const v = parseValorBR(valor) ?? 0;
   const pctMes = fatMes > 0 && v > 0 ? (v / fatMes) * 100 : null;
 
   // Valores pagos já lançados por custo (descrição normalizada → mês → R$)

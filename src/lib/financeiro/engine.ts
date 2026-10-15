@@ -124,6 +124,21 @@ export function mapearDespesasReais(
   custos: Array<{ descricao: string; ativo: boolean; tipo?: string }>,
   despesas: DespesaParaDRE[],
 ): Map<string, number> {
+  return casarDespesasComCustos(custos, despesas).porCusto;
+}
+
+/** Índices das despesas que entram no DRE (mesmo critério de mapearDespesasReais). */
+export function despesasUsadasNoDRE(
+  custos: Array<{ descricao: string; ativo: boolean; tipo?: string }>,
+  despesas: DespesaParaDRE[],
+): Set<number> {
+  return casarDespesasComCustos(custos, despesas).usadas;
+}
+
+function casarDespesasComCustos(
+  custos: Array<{ descricao: string; ativo: boolean; tipo?: string }>,
+  despesas: DespesaParaDRE[],
+): { porCusto: Map<string, number>; usadas: Set<number> } {
   const out = new Map<string, number>();
   const ativos = custos.filter((c) => c.ativo && c.tipo !== "simples");
   const usadas = new Set<number>();
@@ -149,7 +164,7 @@ export function mapearDespesasReais(
     });
     if (achou) { out.set(c.descricao, soma); catsConsumidas.add(cat); }
   }
-  return out;
+  return { porCusto: out, usadas };
 }
 
 // ─── DRE Mensal ────────────────────────────────────────────────────────
@@ -175,6 +190,7 @@ export type DREResultado = {
   detalhe_fixos: Array<{ descricao: string; valor: number; is_real?: boolean }>;
   detalhe_variaveis: Array<{ descricao: string; valor: number; is_real?: boolean }>;
   detalhe_csp: Array<{ descricao: string; valor: number; is_real?: boolean }>;
+  detalhe_royalties: Array<{ descricao: string; valor: number; is_real?: boolean }>;
 };
 
 export type CalcDREInput = {
@@ -211,18 +227,22 @@ export function calcularDRE(input: CalcDREInput): DREResultado {
 
   // ─── Royalties (% mínimo a partir do mês X) ───
   let royalties = 0;
+  const detalhe_royalties: Array<{ descricao: string; valor: number; is_real?: boolean }> = [];
   for (const cv of input.custos_variaveis) {
     if (!cv.ativo) continue;
     if (cv.tipo !== "royalties") continue;
     if (cv.a_partir_do_mes && input.mes_index < cv.a_partir_do_mes) continue;
     const vReal = overrides.get(cv.descricao);
+    let v: number;
     if (vReal != null) {
-      royalties += vReal;
+      v = vReal;
     } else {
       const pct = fat * ((cv.percentual_faturamento ?? 0) / 100);
       const min = cv.valor_minimo ?? 0;
-      royalties += Math.max(pct, min);
+      v = Math.max(pct, min);
     }
+    royalties += v;
+    detalhe_royalties.push({ descricao: cv.descricao, valor: v, is_real: vReal != null });
   }
 
   // ─── Custos fixos ───
@@ -285,6 +305,7 @@ export function calcularDRE(input: CalcDREInput): DREResultado {
     detalhe_fixos,
     detalhe_variaveis,
     detalhe_csp,
+    detalhe_royalties,
   };
 }
 

@@ -10,8 +10,12 @@ import {
   WashingMachine, Wind, Zap, Droplets, Beaker, FlaskConical, DollarSign, Clock, Plug,
   GitCompareArrows,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { nowBR } from "@/lib/timezone-br";
+import { parseValorBR, formatValorBR } from "@/lib/financeiro/valor-br";
 import { useAbaUrl } from "@/components/shell/use-aba-url";
 import type { CustoFixo, CustoVariavel, ProjecaoMes } from "@/lib/financeiro/engine";
 import {
@@ -35,6 +39,7 @@ import {
   salvarCustoVariavel, deletarCustoVariavel,
 } from "@/lib/financeiro/actions";
 import { LancarDespesasDialog } from "./lancar-despesas-dialog";
+import { DespesasDoMes } from "./despesas-do-mes";
 import { PainelInteligente } from "./painel/painel-inteligente";
 import type { PainelDados } from "@/lib/financeiro/painel/tipos";
 import { ProjetadoVsReal } from "./projecao/projetado-vs-real";
@@ -52,13 +57,17 @@ type Unidade = { id: string; nome: string };
 
 export type DespesaItem = {
   id: string;
+  categoria_id: string | null;
   categoria_nome: string;
   descricao: string;
   valor: number;
   vencimento: string;
   competencia: string;   // "AAAA-MM"
   pago_em: string | null;
+  status: "aberta" | "paga" | "vencida";
 };
+
+export type CategoriaDespesa = { id: string; nome: string };
 
 const chaveMes = (ano: number, mes: number) => `${ano}-${String(mes).padStart(2, "0")}`;
 
@@ -71,6 +80,8 @@ export type FinanceiroData = {
   custos_variaveis: CustoVariavel[];
   lancamentos: LancamentoMes[];
   despesas_por_mes: Record<string, DespesaItem[]>;
+  /** Categorias financeiras de despesa do tenant (datalist da edição de despesas). */
+  categorias_despesa?: CategoriaDespesa[];
   engenharia: EngenhariaCustos | null;
   margem: MargemUnidade | null;
   /** Mês ("AAAA-MM") em que `margem` foi calculada (?despesas_mes= ou o mês do painel). */
@@ -112,8 +123,8 @@ export function FinanceiroView(props: FinanceiroData) {
   }, [data.custos_fixos, data.custos_variaveis, data.despesas_por_mes]);
 
   const projecao = React.useMemo(() => projetar60Meses({
-    mes_inicio: data.config?.mes_inauguracao ?? new Date().getMonth() + 1,
-    ano_inicio: data.config?.ano_inauguracao ?? new Date().getFullYear(),
+    mes_inicio: data.config?.mes_inauguracao ?? nowBR().mes,
+    ano_inicio: data.config?.ano_inauguracao ?? nowBR().ano,
     potencial_faturamento: data.config?.potencial_faturamento ?? 42000,
     custos_fixos: data.custos_fixos,
     custos_variaveis: data.custos_variaveis,
@@ -122,13 +133,13 @@ export function FinanceiroView(props: FinanceiroData) {
     overridesPorMes,
   }), [data.config, data.custos_fixos, data.custos_variaveis, investimentoTotalProjetado, lancamentosMap, overridesPorMes]);
 
-  // Mês atual relativo ao início
-  const hoje = new Date();
+  // Mês atual relativo ao início (fuso de São Paulo, não o do navegador)
   const mesAtualIdx = React.useMemo(() => {
     if (!data.config?.ano_inauguracao || !data.config?.mes_inauguracao) return 1;
-    const diff = (hoje.getFullYear() - data.config.ano_inauguracao) * 12 + (hoje.getMonth() + 1 - data.config.mes_inauguracao) + 1;
+    const hoje = nowBR();
+    const diff = (hoje.ano - data.config.ano_inauguracao) * 12 + (hoje.mes - data.config.mes_inauguracao) + 1;
     return Math.max(1, Math.min(60, diff));
-  }, [data.config, hoje]);
+  }, [data.config]);
 
   return (
     <div className="space-y-5">
@@ -869,60 +880,113 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx, 
   unidadeId: string; projecao: ProjecaoMes[]; data: FinanceiroData; investimentoTotal: number; mesAtualIdx: number;
   overridesPorMes: Map<string, Map<string, number>>;
 }) {
+  const router = useRouter();
   const [mesIdx, setMesIdx] = React.useState(mesAtualIdx);
   const mes = projecao[mesIdx - 1];
   const lanc = data.lancamentos.find((l) => l.mes_index === mesIdx);
-  const [fatReal, setFatReal] = React.useState(lanc?.faturamento_real?.toString().replace(".", ",") ?? "");
-  const [saving, setSaving] = React.useState(false);
-  const [despesasOpen, setDespesasOpen] = React.useState(false);
+  const daVendas = lanc?.fonte === "vendas";
+  const salvoNum = lanc?.faturamento_real ?? null;
+  const txtSalvo = salvoNum != null ? formatValorBR(salvoNum) : "";
 
+  const [fatReal, setFatReal] = React.useState(txtSalvo);
+  const [saving, setSaving] = React.useState<"salvar" | "limpar" | null>(null);
+  const [fb, setFb] = React.useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const [confirmLimpar, setConfirmLimpar] = React.useState(false);
+  const [despesasOpen, setDespesasOpen] = React.useState(false);
+  const [aberturaDialog, setAberturaDialog] = React.useState(0);
+
+  // Troca de mês ou valor salvo novo (após refresh) → input volta ao valor salvo.
+  // Ajuste durante o render (sem efeito) — https://react.dev/learn/you-might-not-need-an-effect
+  const [sync, setSync] = React.useState({ mesIdx, salvo: salvoNum });
+  if (sync.mesIdx !== mesIdx || sync.salvo !== salvoNum) {
+    if (sync.mesIdx !== mesIdx) { setFb(null); setConfirmLimpar(false); }
+    setSync({ mesIdx, salvo: salvoNum });
+    setFatReal(txtSalvo);
+  }
+
+  // Mensagem de sucesso some em 3 s
   React.useEffect(() => {
-    const l = data.lancamentos.find((l) => l.mes_index === mesIdx);
-    setFatReal(l?.faturamento_real?.toString().replace(".", ",") ?? "");
-  }, [mesIdx, data.lancamentos]);
+    if (fb?.tipo !== "ok") return;
+    const t = setTimeout(() => setFb(null), 3000);
+    return () => clearTimeout(t);
+  }, [fb]);
 
   if (!mes) return null;
-  const fatRealNum = fatReal.trim() ? parseFloat(fatReal.replace(",", ".")) : null;
+
+  const parsed = parseValorBR(fatReal);
+  const invalido = !daVendas && fatReal.trim() !== "" && parsed == null;
+  const sujo = !daVendas && (invalido || parsed !== salvoNum);
+  const previa = sujo && !invalido;
+  // O DRE usa o valor SALVO (ou das vendas); com alteração pendente vira prévia
+  const fatUsado = daVendas ? salvoNum : previa ? parsed : salvoNum;
+  const rotulo = `${MESES_PT[mes.mes - 1]}/${mes.ano}`;
+
   // Mesma base do Simples da projeção: 12 meses ANTERIORES (real, senão projetado)
   const anteriores = projecao.slice(0, mesIdx - 1).map((p) => p.faturamento_real ?? p.faturamento_projetado);
-  const rbt12 = rbt12Legal(anteriores, fatRealNum ?? 0);
+  const rbt12 = rbt12Legal(anteriores, fatUsado ?? 0);
   const chave = chaveMes(mes.ano, mes.mes);
   const overrides = overridesPorMes.get(chave);
   const despesasDoMes = data.despesas_por_mes[chave] ?? [];
-  const totalDespesasMes = despesasDoMes.reduce((s, d) => s + d.valor, 0);
-  const porDescricaoMes: Record<string, number> = {};
-  const porCategoriaMes: Record<string, number> = {};
-  for (const d of despesasDoMes) {
-    const kd = normDesc(d.descricao), kc = normDesc(d.categoria_nome);
-    porDescricaoMes[kd] = (porDescricaoMes[kd] ?? 0) + d.valor;
-    porCategoriaMes[kc] = (porCategoriaMes[kc] ?? 0) + d.valor;
-  }
 
-  const dreReal = fatRealNum != null ? calcularDRE({
-    faturamento: fatRealNum, rbt12, mes_index: mesIdx,
+  const dreReal = fatUsado != null ? calcularDRE({
+    faturamento: fatUsado, rbt12, mes_index: mesIdx,
     custos_fixos: data.custos_fixos, custos_variaveis: data.custos_variaveis,
     investimento_total: investimentoTotal,
     despesas_reais_overrides: overrides,
   }) : null;
 
-  async function salvar() {
-    setSaving(true);
-    const v = fatReal.trim() ? parseFloat(fatReal.replace(",", ".")) : null;
-    await lancarFaturamentoMes({
-      unidade_id: unidadeId,
-      mes_index: mesIdx,
-      ano: mes.ano,
-      mes: mes.mes,
-      faturamento_real: v,
-    });
-    setSaving(false);
+  // Projetado do motor por linha de custo (sem valores pagos) — sugestão do diálogo.
+  // Base: faturamento real salvo do mês; sem ele, o projetado.
+  const fatBaseProj = salvoNum ?? mes.faturamento_projetado;
+  const dreProj = calcularDRE({
+    faturamento: fatBaseProj, rbt12: rbt12Legal(anteriores, fatBaseProj), mes_index: mesIdx,
+    custos_fixos: data.custos_fixos, custos_variaveis: data.custos_variaveis,
+    investimento_total: investimentoTotal,
+  });
+  const projetadoPorDescricao: Record<string, number> = {};
+  for (const l of [...dreProj.detalhe_csp, ...dreProj.detalhe_royalties, ...dreProj.detalhe_fixos, ...dreProj.detalhe_variaveis]) {
+    projetadoPorDescricao[l.descricao] = (projetadoPorDescricao[l.descricao] ?? 0) + l.valor;
+  }
+
+  const custosDRE = [
+    ...data.custos_fixos.map((c) => ({ descricao: c.descricao, ativo: c.ativo, tipo: "fixo" })),
+    ...data.custos_variaveis.map((c) => ({ descricao: c.descricao, ativo: c.ativo, tipo: c.tipo as string })),
+  ];
+
+  async function gravar(valor: number | null, modo: "salvar" | "limpar") {
+    setSaving(modo);
+    setFb(null);
+    try {
+      const r = await lancarFaturamentoMes({
+        unidade_id: unidadeId, mes_index: mesIdx, ano: mes.ano, mes: mes.mes, faturamento_real: valor,
+      });
+      if (!r.ok) { setFb({ tipo: "erro", texto: r.erro }); return; }
+      if (modo === "limpar") setFatReal("");
+      setConfirmLimpar(false);
+      setFb({ tipo: "ok", texto: modo === "limpar" ? "Faturamento apagado" : "Faturamento salvo" });
+      router.refresh();
+    } catch (e) {
+      setFb({ tipo: "erro", texto: `Não foi possível salvar. Verifique a conexão. (${e instanceof Error ? e.message : String(e)})` });
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  function salvar() {
+    if (!sujo || invalido || saving) return;
+    void gravar(parsed, "salvar");
+  }
+
+  function abrirDialog() {
+    setAberturaDialog((n) => n + 1);
+    setDespesasOpen(true);
   }
 
   return (
     <>
       <div className="rounded-2xl border border-border bg-card p-4 flex flex-wrap items-center gap-3">
         <div className="font-display font-bold inline-flex items-center gap-1.5">
-          <FileText className="w-4 h-4 text-brand-cyan" /> DRE Real — Mês {mesIdx} · {MESES_PT[mes.mes - 1]}/{mes.ano}
+          <FileText className="w-4 h-4 text-brand-cyan" /> DRE Real — Mês {mesIdx} · {rotulo}
         </div>
         <div className="flex items-center gap-1 ml-auto">
           <button onClick={() => setMesIdx(Math.max(1, mesIdx - 1))} className="w-8 h-8 rounded border border-border hover:bg-secondary flex items-center justify-center" aria-label="Mês anterior"><ChevronLeft className="w-4 h-4" /></button>
@@ -933,28 +997,93 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx, 
         </div>
       </div>
 
-      <div className="rounded-2xl border border-border bg-card p-4 flex flex-wrap items-center gap-3">
-        <span className="text-[11px] text-muted-foreground">Faturamento real:</span>
-        <input value={fatReal} onChange={(e) => setFatReal(e.target.value)} placeholder="0,00" className="form-input w-40 font-mono" />
-        {lanc?.fonte === "vendas" && (
-          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md bg-success/15 text-success border border-success/30">
-            <Zap className="w-3 h-3" /> Auto · vendas reais{lanc.qtd_vendas ? ` · ${lanc.qtd_vendas} vendas` : ""}{lanc.ciclos ? ` · ${lanc.ciclos} ciclos` : ""}
-          </span>
+      {/* Faturamento real do mês */}
+      <div className="rounded-2xl border border-border bg-card p-4 space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <label htmlFor="fat-real" className="text-[11px] text-muted-foreground">Faturamento real:</label>
+          {daVendas ? (
+            <input id="fat-real" readOnly value={salvoNum != null ? formatValorBR(salvoNum) : ""} aria-readonly
+              title="Calculado a partir das vendas importadas"
+              className="form-input w-40 font-mono text-right bg-muted/40 text-muted-foreground cursor-not-allowed" />
+          ) : (
+            <input id="fat-real" value={fatReal} inputMode="decimal" placeholder="0,00"
+              onChange={(e) => { setFatReal(e.target.value); setConfirmLimpar(false); if (fb?.tipo === "erro") setFb(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); salvar(); } }}
+              aria-invalid={invalido || undefined}
+              className={cn("form-input w-40 font-mono text-right", invalido && "border-danger focus:border-danger")} />
+          )}
+
+          {daVendas && (
+            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md bg-success/15 text-success border border-success/30">
+              <Zap className="w-3 h-3" /> Auto · vendas reais{lanc?.qtd_vendas ? ` · ${lanc.qtd_vendas} vendas` : ""}{lanc?.ciclos ? ` · ${lanc.ciclos} ciclos` : ""}
+            </span>
+          )}
+
+          {!daVendas && sujo && !invalido && (
+            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-md bg-warning/15 text-warning border border-warning/30">
+              <AlertTriangle className="w-3 h-3" /> Alteração não salva
+            </span>
+          )}
+
+          {!daVendas && !confirmLimpar && (
+            <>
+              <Button size="sm" onClick={salvar} disabled={!sujo || invalido || saving != null} className="bg-brand-cyan text-primary-foreground">
+                {saving === "salvar" ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />} Salvar
+              </Button>
+              {salvoNum != null && (
+                <Button size="sm" variant="outline" disabled={saving != null} onClick={() => { setConfirmLimpar(true); setFb(null); }}>
+                  Limpar
+                </Button>
+              )}
+            </>
+          )}
+
+          {!daVendas && confirmLimpar && (
+            <span className="inline-flex flex-wrap items-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-2 py-1">
+              <span className="text-[12px]">Apagar o faturamento de {rotulo}?</span>
+              <Button size="sm" variant="outline" disabled={saving != null} onClick={() => setConfirmLimpar(false)}>Cancelar</Button>
+              <Button size="sm" disabled={saving != null} onClick={() => void gravar(null, "limpar")} className="bg-danger text-white hover:bg-danger/90">
+                {saving === "limpar" ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 mr-1" />} Apagar
+              </Button>
+            </span>
+          )}
+
+          {fb && (
+            <span role="status" className={cn("text-[12px] inline-flex items-center gap-1", fb.tipo === "ok" ? "text-success" : "text-danger")}>
+              {fb.tipo === "ok" ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />} {fb.texto}
+            </span>
+          )}
+
+          {dreReal && <AlertaResultado resultado={dreReal.resultado_liquido} margem={dreReal.margem_operacional} />}
+        </div>
+
+        {invalido && (
+          <div className="text-[11px] text-danger inline-flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" /> Valor inválido. Use o formato 1.234,56
+          </div>
         )}
-        <Button size="sm" onClick={salvar} disabled={saving || lanc?.fonte === "vendas"} className="bg-brand-cyan text-primary-foreground">
-          {saving ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1" />} Salvar
-        </Button>
-        <Button size="sm" variant="outline" disabled={lanc?.fonte === "vendas"} onClick={async () => { setFatReal(""); await lancarFaturamentoMes({ unidade_id: unidadeId, mes_index: mesIdx, ano: mes.ano, mes: mes.mes, faturamento_real: null }); }}>Limpar</Button>
-        <Button size="sm" variant="outline"
-          onClick={() => setDespesasOpen(true)}
-          className="border-brand-cyan/40 text-brand-cyan hover:bg-brand-cyan/10">
-          <Wallet className="w-3.5 h-3.5 mr-1" />
-          Lançar despesas do mês{totalDespesasMes > 0 ? ` (${fmtBRL(totalDespesasMes)} já lançado)` : ""}
-        </Button>
-        {dreReal && <AlertaResultado resultado={dreReal.resultado_liquido} margem={dreReal.margem_operacional} />}
+        {daVendas && (
+          <div className="text-[11px] text-muted-foreground">
+            Calculado a partir das vendas importadas. Para corrigir, ajuste as vendas em{" "}
+            <Link href="/cadastros/importacoes" className="text-brand-cyan font-semibold hover:underline inline-flex items-center gap-0.5">
+              Cadastros › Importações <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+        )}
       </div>
 
+      <DespesasDoMes
+        unidadeId={unidadeId}
+        ano={mes.ano}
+        mes={mes.mes}
+        despesas={despesasDoMes}
+        categorias={data.categorias_despesa ?? []}
+        custos={custosDRE}
+        onLancar={abrirDialog}
+      />
+
       <LancarDespesasDialog
+        key={aberturaDialog}
         open={despesasOpen}
         onOpenChange={setDespesasOpen}
         unidadeId={unidadeId}
@@ -963,18 +1092,18 @@ function DREMensal({ unidadeId, projecao, data, investimentoTotal, mesAtualIdx, 
         mes={mes.mes}
         custosFixos={data.custos_fixos}
         custosVariaveis={data.custos_variaveis}
-        faturamentoReal={fatRealNum}
-        porDescricaoExistente={porDescricaoMes}
-        porCategoriaExistente={porCategoriaMes}
+        projetadoPorDescricao={projetadoPorDescricao}
+        despesasDoMes={despesasDoMes}
+        categorias={data.categorias_despesa ?? []}
       />
 
       {dreReal ? (
-        <DRECard titulo="DRE Real do mês" tone="success" dre={dreReal} />
+        <DRECard titulo={previa ? "Prévia (não salva)" : "DRE Real do mês"} tone={previa ? "warning" : "success"} dre={dreReal} />
       ) : (
         <div className="rounded-2xl border-2 border-dashed border-border bg-muted/10 p-8 text-center flex flex-col items-center justify-center">
           <FileText className="w-10 h-10 text-muted-foreground/40 mb-3" />
           <div className="text-[14px] font-semibold">Sem faturamento real no mês</div>
-          <div className="text-[12px] text-muted-foreground mt-1">Importe vendas em Cadastros → Importações ou digite o valor acima.</div>
+          <div className="text-[12px] text-muted-foreground mt-1">Importe vendas em Cadastros › Importações ou digite o valor acima e salve.</div>
         </div>
       )}
     </>
@@ -1007,7 +1136,7 @@ function DRECard({ titulo, tone, dre }: { titulo: string; tone: string; dre: Ret
       {dre.detalhe_csp.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small isReal={d.is_real} />)}
       <DRELinhaR label="(=) Resultado Bruto" valor={dre.resultado_bruto} bold borderTop />
       <div className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold mt-3 mb-1">Despesas operacionais</div>
-      <DRELinhaR label="(−) Royalties (Franchising)" valor={-dre.royalties} red small />
+      <DRELinhaR label="(−) Royalties (Franchising)" valor={-dre.royalties} red small isReal={dre.detalhe_royalties.some((d) => d.is_real)} />
       <div className="text-[10px] font-semibold mt-1.5">Custos fixos</div>
       {dre.detalhe_fixos.map((d, i) => <DRELinhaR key={i} label={`(−) ${d.descricao}`} valor={-d.valor} red small isReal={d.is_real} />)}
       <div className="text-[10px] font-semibold mt-1.5">Custos variáveis</div>

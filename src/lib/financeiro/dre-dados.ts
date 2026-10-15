@@ -32,7 +32,7 @@ async function carregarUnidade(sb: SupabaseClient, unidadeId: string): Promise<D
       .eq("unidade_id", unidadeId).eq("situacao", "sucesso").order("id").range(r.from, r.to)),
     paginarTodos<Desp>((r) => sb.from("despesas")
       .select("descricao, valor, vencimento, data_competencia, categoria:categorias_financeiras(nome)")
-      .eq("unidade_id", unidadeId).order("id").range(r.from, r.to)),
+      .eq("unidade_id", unidadeId).neq("status", "cancelada").order("id").range(r.from, r.to)),
   ]);
 
   const c = (cfg.data ?? {}) as Record<string, unknown>;

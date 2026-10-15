@@ -4,6 +4,7 @@ import {
   getConfigUnidade, getInvestimento, getCustosFixos,
   getCustosVariaveis, getLancamentos, getDespesasPorMes,
   getFaturamentoMensalVendas, mesclarLancamentosComVendas,
+  getCategoriasDespesa,
 } from "@/lib/financeiro/queries";
 import { getEngenhariaCustos, getCiclosDoMes } from "@/lib/financeiro/margem-queries";
 import { calcularMargemContribuicao } from "@/lib/financeiro/margem-engine";
@@ -23,9 +24,10 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
 
   const { data: unidadesRaw } = await sb
     .from("unidades")
-    .select("id, nome")
+    .select("id, nome, tenant_id")
     .order("nome");
-  const unidades = (unidadesRaw ?? []) as Array<{ id: string; nome: string }>;
+  const unidadesComTenant = (unidadesRaw ?? []) as Array<{ id: string; nome: string; tenant_id: string }>;
+  const unidades = unidadesComTenant.map((u) => ({ id: u.id, nome: u.nome }));
 
   const unidadeId = params.unidade && unidades.some((u) => u.id === params.unidade)
     ? params.unidade
@@ -48,7 +50,9 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
   const [refAno, refMesNum] = refMes.split("-").map(Number);
   const escopoPainel = params.escopo === ESCOPO_CONSOLIDADO ? ESCOPO_CONSOLIDADO : unidadeId;
 
-  const [config, investimento, custos_fixos, custos_variaveis, lancamentosRaw, despesas_por_mes, vendasMensais, engenharia, ciclosMes, painel] = await Promise.all([
+  const tenantUnidade = unidadesComTenant.find((u) => u.id === unidadeId)?.tenant_id ?? null;
+
+  const [config, investimento, custos_fixos, custos_variaveis, lancamentosRaw, despesas_por_mes, vendasMensais, engenharia, ciclosMes, painel, categorias_despesa] = await Promise.all([
     getConfigUnidade(unidadeId),
     getInvestimento(unidadeId),
     getCustosFixos(unidadeId),
@@ -63,6 +67,7 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
       console.error("[financeiro] painel:", e instanceof Error ? e.message : e);
       return null;
     }),
+    getCategoriasDespesa(tenantUnidade),
   ]);
 
   // Margem de contribuição do mês de referência
@@ -90,6 +95,7 @@ export default async function Page({ searchParams }: { searchParams: SearchParam
         custos_variaveis={custos_variaveis}
         lancamentos={lancamentos}
         despesas_por_mes={despesas_por_mes}
+        categorias_despesa={categorias_despesa}
         engenharia={engenharia}
         margem={margem}
         margem_mes={refMes}
